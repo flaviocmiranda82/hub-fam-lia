@@ -12,9 +12,9 @@ window.addEventListener('error',function(e){__add((e.target&&e.target.src)?('Nao
 window.addEventListener('unhandledrejection',function(e){var r=e.reason;__add('Falha: '+(r&&r.message?r.message:(typeof r==='string'?r:JSON.stringify(r))));});
 </script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap">
-<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
 <style>
   *{box-sizing:border-box}
@@ -48,7 +48,9 @@ const { useState, useEffect } = React;
 // ---- suas credenciais ----
 const SUPABASE_URL = "https://xbtpnhfnvgqhtrmihdcp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_9yEbAQJJN32egUz0oSXXXw_TmLMUW8J";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const __mem={};
+const __store={getItem:function(k){try{return localStorage.getItem(k);}catch(e){return __mem[k]||null;}},setItem:function(k,v){try{localStorage.setItem(k,v);}catch(e){__mem[k]=v;}},removeItem:function(k){try{localStorage.removeItem(k);}catch(e){delete __mem[k];}}};
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth:{ storage: __store, persistSession:true, autoRefreshToken:true, detectSessionInUrl:false } });
 
 const COR = { meninas:"#EC6A4C", pais:"#2E8B83", meninasBg:"#FDEEE9", paisBg:"#E7F2F0" };
 const MESES=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
