@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hub da Família</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;color:#2A2233;background:#FBF6EF;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:560px;margin:0 auto;padding:18px 18px 96px}
+  .eyebrow{font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#857A8C}
+  .h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:27px;line-height:1.05;margin:6px 0 2px}
+  .sub{color:#857A8C;font-size:14px;margin-top:4px}
+  .card{background:#fff;border:1px solid #ECE3D8;border-radius:18px}
+  .btn{font-family:'Inter';font-weight:600;font-size:15px;border:none;cursor:pointer;border-radius:14px;padding:13px 16px;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .btn:active{transform:scale(.98)}
+  .btn-primary{background:#2A2233;color:#fff;width:100%}
+  .btn-ghost{background:transparent;color:#2A2233;border:1px solid #ECE3D8}
+  .label{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#857A8C;display:block;margin-bottom:5px}
+  .input{width:100%;font-size:15px;color:#2A2233;background:#fff;border:1px solid #ECE3D8;border-radius:11px;padding:11px 12px}
+  .chip{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;display:inline-flex;gap:5px;align-items:center}
+  .tabs{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #ECE3D8;display:flex}
+  .tab{flex:1;padding:11px 0 18px;text-align:center;font-size:12px;font-weight:600;color:#857A8C;background:none;border:none}
+  .tab.on{color:#2A2233}
+  .seg{flex:1;text-align:center;padding:10px;border-radius:11px;border:1px solid #ECE3D8;font-weight:600;font-size:14px;background:#fff;cursor:pointer}
+  .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#2A2233;color:#fff;font-size:14px;padding:12px 18px;border-radius:13px;max-width:90%;text-align:center}
+  .note{font-size:12.5px;color:#857A8C;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ---- suas credenciais ----
+const SUPABASE_URL = "https://xbtpnhfnvgqhtrmihdcp.supabase.co";
+const SUPABASE_KEY = "sb_publishable_9yEbAQJJN32egUz0oSXXXw_TmLMUW8J";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const COR = { meninas:"#EC6A4C", pais:"#2E8B83", meninasBg:"#FDEEE9", paisBg:"#E7F2F0" };
+const MESES=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+const MESES_L=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const DIAS=["domingo","segunda","terça","quarta","quinta","sexta","sábado"];
+const pData=(iso)=>{const[a,m,d]=(iso||"").split("-").map(Number);return(a&&m&&d)?new Date(a,m-1,d):null;};
+const fCurta=(iso)=>{const d=pData(iso);return d?DIAS[d.getDay()].slice(0,3)+", "+d.getDate()+" de "+MESES[d.getMonth()]:"—";};
+const fLonga=(iso)=>{const d=pData(iso);return d?DIAS[d.getDay()]+", "+d.getDate()+" de "+MESES_L[d.getMonth()]:"—";};
+const dAte=(iso)=>{const d=pData(iso);if(!d)return null;const h=new Date();h.setHours(0,0,0,0);return Math.round((d-h)/864e5);};
+const falta=(iso)=>{const n=dAte(iso);if(n===null)return"";if(n<0)return"já passou";if(n===0)return"é hoje";if(n===1)return"é amanhã";return"faltam "+n+" dias";};
+function semanaAtual(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+3-((d.getDay()+6)%7));const s=new Date(d.getFullYear(),0,4);const n=1+Math.round(((d-s)/864e5-3+((s.getDay()+6)%7))/7);return d.getFullYear()+"-W"+String(n).padStart(2,"0");}
+
+async function desenhar(ev){
+  await (document.fonts?document.fonts.ready:Promise.resolve());
+  const s=2,W=680,P=44,cor=ev.festa_infantil?COR.meninas:COR.pais,corBg=ev.festa_infantil?COR.meninasBg:COR.paisBg;
+  const linhas=[["DATA",fLonga(ev.data)],["HORÁRIO",ev.inicio?(ev.inicio+(ev.fim?" – "+ev.fim:"")):"a confirmar"],["LOCAL",ev.local||"a confirmar"],[ev.festa_infantil?"ANIVERSARIANTE":"ENVOLVE",ev.convidado||"—"]];
+  if(ev.responsavel)linhas.push(["LOGÍSTICA","Quem leva: "+ev.responsavel]);
+  const H=250+linhas.length*64,c=document.createElement("canvas");c.width=W*s;c.height=H*s;const x=c.getContext("2d");x.scale(s,s);
+  const rr=(a,b,w,h,r)=>{x.beginPath();x.moveTo(a+r,b);x.arcTo(a+w,b,a+w,b+h,r);x.arcTo(a+w,b+h,a,b+h,r);x.arcTo(a,b+h,a,b,r);x.arcTo(a,b,a+w,b,r);x.closePath();};
+  x.fillStyle="#FBF6EF";x.fillRect(0,0,W,H);x.fillStyle="#fff";rr(20,20,W-40,H-40,26);x.fill();x.fillStyle=cor;rr(20,20,12,H-40,6);x.fill();
+  x.textBaseline="top";x.fillStyle="#857A8C";x.font="700 13px 'Space Mono',monospace";x.fillText("L E M B R E T E   •   F A M Í L I A",P,44);
+  x.fillStyle="#2A2233";x.font="800 34px 'Bricolage Grotesque',sans-serif";
+  const pal=(ev.titulo||"Evento").split(" ");let l1="",l2="";for(const p of pal){const t=(l1?l1+" ":"")+p;if(x.measureText(t).width<W-2*P-20&&!l2)l1=t;else l2=(l2?l2+" ":"")+p;}
+  x.fillText(l1,P,72);if(l2)x.fillText(l2,P,110);let y=l2?158:124;
+  linhas.forEach(([k,v])=>{x.fillStyle="#857A8C";x.font="700 11px 'Space Mono',monospace";x.fillText(k,P,y);x.fillStyle="#2A2233";x.font="500 18px 'Inter',sans-serif";x.fillText(v,P,y+18);y+=64;});
+  const sel=falta(ev.data).toUpperCase();x.font="700 13px 'Space Mono',monospace";const sw=x.measureText(sel).width+28;
+  x.fillStyle=corBg;rr(P,y+2,sw,34,17);x.fill();x.fillStyle=cor;x.fillText(sel,P+14,y+13);
+  return new Promise(r=>c.toBlob(b=>r(b),"image/png"));
+}
+async function compartilhar(ev,toast){
+  const blob=await desenhar(ev),file=new File([blob],"lembrete.png",{type:"image/png"});
+  const txt="📌 "+ev.titulo+" — "+fCurta(ev.data)+(ev.inicio?" às "+ev.inicio:"")+(ev.local?" • "+ev.local:"")+(ev.responsavel?" • Leva: "+ev.responsavel:"");
+  try{ if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],text:txt});return;} throw 0; }
+  catch(e){ if(e&&e.name==="AbortError")return; const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download="lembrete.png";a.click();URL.revokeObjectURL(u); try{await navigator.clipboard.writeText(txt);}catch(_){}; toast("Imagem baixada e texto copiado. Abra o WhatsApp e envie."); }
+}
+
+function Login({ toast }){
+  const [email,setEmail]=useState(""),[senha,setSenha]=useState(""),[modo,setModo]=useState("entrar"),[carregando,setCarregando]=useState(false);
+  async function ok(){
+    if(!email||!senha){toast("Preencha e-mail e senha.");return;}
+    setCarregando(true);
+    const fn = modo==="entrar" ? sb.auth.signInWithPassword({email,password:senha}) : sb.auth.signUp({email,password:senha});
+    const { error } = await fn;
+    setCarregando(false);
+    if(error) toast(error.message);
+    else if(modo==="criar") toast("Conta criada! Agora toque em Entrar.");
+  }
+  return (
+    <div className="wrap" style={{paddingTop:60}}>
+      <div className="eyebrow">Hub da Família</div>
+      <div className="h1">{modo==="entrar"?"Entrar":"Criar conta"}</div>
+      <div className="card" style={{padding:16,marginTop:18,display:"flex",flexDirection:"column",gap:13}}>
+        <div><span className="label">E-mail</span><input className="input" value={email} onChange={e=>setEmail(e.target.value)} placeholder="seu@email.com"/></div>
+        <div><span className="label">Senha</span><input className="input" type="password" value={senha} onChange={e=>setSenha(e.target.value)} onKeyDown={e=>e.key==="Enter"&&ok()}/></div>
+      </div>
+      <button className="btn btn-primary" style={{marginTop:14}} disabled={carregando} onClick={ok}>{carregando?"...":(modo==="entrar"?"Entrar":"Criar conta")}</button>
+      <div className="note" style={{textAlign:"center",marginTop:12}} onClick={()=>setModo(modo==="entrar"?"criar":"entrar")}>
+        {modo==="entrar"?"Primeira vez? Toque para criar conta":"Já tem conta? Toque para entrar"}
+      </div>
+    </div>
+  );
+}
+
+function Agenda({ toast }){
+  const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false);
+  const vazio={titulo:"",data:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:""};
+  const [n,setN]=useState(vazio);
+  const carregar=async()=>{const{data}=await sb.from("eventos").select("*").order("data");setEventos(data||[]);};
+  useEffect(()=>{carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},carregar).subscribe();return()=>sb.removeChannel(ch);},[]);
+  async function salvar(){ if(!n.titulo.trim()){toast("Dê um nome ao evento.");return;} const{error}=await sb.from("eventos").insert(n); if(error)toast(error.message); else{setN(vazio);setAbrir(false);} }
+  async function apagar(id){ await sb.from("eventos").delete().eq("id",id); }
+  const up=(k,v)=>setN(p=>({...p,[k]:v}));
+  return (
+    <div className="wrap">
+      <div className="eyebrow">Agenda</div>
+      <div className="h1">Eventos da família</div>
+      {!abrir
+        ? <button className="btn btn-ghost" style={{width:"100%",marginTop:14}} onClick={()=>setAbrir(true)}>+ Novo evento</button>
+        : <div className="card" style={{padding:16,marginTop:14,display:"flex",flexDirection:"column",gap:12}}>
+            <div><span className="label">Evento</span><input className="input" value={n.titulo} onChange={e=>up("titulo",e.target.value)} placeholder="Ex: Aniversário da Manu"/></div>
+            <div><span className="label">Data</span><input className="input" type="date" value={n.data} onChange={e=>up("data",e.target.value)}/></div>
+            <div style={{display:"flex",gap:11}}>
+              <div style={{flex:1}}><span className="label">Início</span><input className="input" type="time" value={n.inicio} onChange={e=>up("inicio",e.target.value)}/></div>
+              <div style={{flex:1}}><span className="label">Fim</span><input className="input" type="time" value={n.fim} onChange={e=>up("fim",e.target.value)}/></div>
+            </div>
+            <div><span className="label">Local</span><input className="input" value={n.local} onChange={e=>up("local",e.target.value)}/></div>
+            <div><span className="label">Convidado / aniversariante</span><input className="input" value={n.convidado} onChange={e=>up("convidado",e.target.value)}/></div>
+            <div><span className="label">De quem é</span>
+              <div style={{display:"flex",gap:8}}>
+                <div className="seg" onClick={()=>up("festa_infantil",false)} style={!n.festa_infantil?{borderColor:COR.pais,background:COR.paisBg,color:COR.pais}:{}}>Casal / pais</div>
+                <div className="seg" onClick={()=>up("festa_infantil",true)} style={n.festa_infantil?{borderColor:COR.meninas,background:COR.meninasBg,color:COR.meninas}:{}}>Das meninas</div>
+              </div></div>
+            {n.festa_infantil&&<div><span className="label">Quem leva / busca</span><input className="input" value={n.responsavel} onChange={e=>up("responsavel",e.target.value)}/></div>}
+            <div style={{display:"flex",gap:8}}><button className="btn btn-primary" style={{flex:1}} onClick={salvar}>Guardar</button><button className="btn btn-ghost" onClick={()=>setAbrir(false)}>Cancelar</button></div>
+          </div>}
+      <div className="eyebrow" style={{margin:"22px 2px 12px"}}>Próximos</div>
+      {eventos.length===0
+        ? <div className="card" style={{padding:24,textAlign:"center"}}><div style={{fontWeight:600}}>Nada marcado ainda</div></div>
+        : <div style={{display:"flex",flexDirection:"column",gap:11}}>
+            {eventos.map(ev=>{const cor=ev.festa_infantil?COR.meninas:COR.pais,corBg=ev.festa_infantil?COR.meninasBg:COR.paisBg;return(
+              <div className="card" key={ev.id} style={{display:"flex",overflow:"hidden",padding:0}}>
+                <div style={{width:8,background:cor}}/>
+                <div style={{padding:"14px 14px 14px 16px",flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}><div style={{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17}}>{ev.titulo}</div><span className="chip" style={{background:corBg,color:cor}}>{falta(ev.data)}</span></div>
+                  <div style={{color:"#857A8C",fontSize:13.5,margin:"6px 0 2px"}}>{fCurta(ev.data)}{ev.inicio?" · "+ev.inicio+(ev.fim?"–"+ev.fim:""):""}{ev.local?" · "+ev.local:""}</div>
+                  {ev.responsavel&&<div style={{fontSize:13}}><b>Quem leva:</b> {ev.responsavel}</div>}
+                  <div style={{display:"flex",gap:8,marginTop:11}}>
+                    <button className="btn btn-primary" style={{flex:1,padding:10}} onClick={()=>compartilhar(ev,toast)}>Compartilhar lembrete</button>
+                    <button className="btn btn-ghost" style={{padding:"10px 12px"}} onClick={()=>apagar(ev.id)}>Apagar</button>
+                  </div>
+                </div>
+              </div>);})}
+          </div>}
+    </div>
+  );
+}
+
+function Missoes({ papel, toast }){
+  const semana=semanaAtual(),pai=(papel==="pai"||papel==="mae");
+  const [missoes,setMissoes]=useState([]),[abrir,setAbrir]=useState(false);
+  const vazio={titulo:"",categoria:"Base",pontos:10,responsavel:"",status:"aberta",semana};
+  const [n,setN]=useState(vazio);
+  const carregar=async()=>{const{data}=await sb.from("missoes").select("*").eq("semana",semana).order("criado_em");setMissoes(data||[]);};
+  useEffect(()=>{carregar();const ch=sb.channel("ms").on("postgres_changes",{event:"*",schema:"public",table:"missoes"},carregar).subscribe();return()=>sb.removeChannel(ch);},[]);
+  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} const{error}=await sb.from("missoes").insert({...n,pontos:Number(n.pontos)}); if(error)toast(error.message); else{setN(vazio);setAbrir(false);} }
+  async function feita(id){ await sb.from("missoes").update({status:"feita"}).eq("id",id); }
+  async function aprovar(id){ await sb.from("missoes").update({status:"aprovada"}).eq("id",id); }
+  async function apagar(id){ await sb.from("missoes").delete().eq("id",id); }
+  const corCat=(c)=>c==="Extra"?COR.meninas:c==="Esforço"?"#C99A2E":COR.pais;
+  const mesada={}; missoes.filter(m=>m.status==="aprovada").forEach(m=>{mesada[m.responsavel]=(mesada[m.responsavel]||0)+(m.pontos||0);});
+  return (
+    <div className="wrap">
+      <div className="eyebrow">Missões · {semana}</div>
+      <div className="h1">Tarefas da semana</div>
+      {Object.keys(mesada).length>0&&<div className="card" style={{padding:14,marginTop:14,display:"flex",gap:10,flexWrap:"wrap"}}>{Object.entries(mesada).map(([q,p])=><span key={q} className="chip" style={{background:COR.paisBg,color:COR.pais}}>{q}: {p} pts</span>)}</div>}
+      {pai&&(!abrir
+        ? <button className="btn btn-ghost" style={{width:"100%",marginTop:14}} onClick={()=>setAbrir(true)}>+ Nova missão</button>
+        : <div className="card" style={{padding:16,marginTop:14,display:"flex",flexDirection:"column",gap:12}}>
+            <div><span className="label">Missão</span><input className="input" value={n.titulo} onChange={e=>setN({...n,titulo:e.target.value})} placeholder="Ex: Arrumar a cama"/></div>
+            <div style={{display:"flex",gap:11}}>
+              <div style={{flex:1}}><span className="label">Categoria</span><select className="input" value={n.categoria} onChange={e=>setN({...n,categoria:e.target.value})}><option>Base</option><option>Esforço</option><option>Extra</option></select></div>
+              <div style={{width:90}}><span className="label">Pontos</span><input className="input" type="number" value={n.pontos} onChange={e=>setN({...n,pontos:e.target.value})}/></div>
+            </div>
+            <div><span className="label">Responsável (nome)</span><input className="input" value={n.responsavel} onChange={e=>setN({...n,responsavel:e.target.value})} placeholder="Ex: Helena"/></div>
+            <div style={{display:"flex",gap:8}}><button className="btn btn-primary" style={{flex:1}} onClick={add}>Criar</button><button className="btn btn-ghost" onClick={()=>setAbrir(false)}>Cancelar</button></div>
+          </div>)}
+      <div className="eyebrow" style={{margin:"22px 2px 12px"}}>Missões</div>
+      {missoes.length===0
+        ? <div className="card" style={{padding:24,textAlign:"center"}}><div style={{fontWeight:600}}>Nada por aqui ainda</div></div>
+        : <div style={{display:"flex",flexDirection:"column",gap:11}}>
+            {missoes.map(m=>(
+              <div className="card" key={m.id} style={{display:"flex",overflow:"hidden",padding:0}}>
+                <div style={{width:8,background:corCat(m.categoria)}}/>
+                <div style={{padding:"13px 14px",flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                    <div><div style={{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:16}}>{m.titulo}</div><div className="note">{m.categoria} · {m.pontos} pts · {m.responsavel}</div></div>
+                    <span className="chip" style={{background:m.status==="aprovada"?COR.paisBg:m.status==="feita"?"#FBF0D8":COR.meninasBg,color:m.status==="aprovada"?COR.pais:m.status==="feita"?"#C99A2E":COR.meninas}}>{m.status}</span>
+                  </div>
+                  <div style={{display:"flex",gap:8,marginTop:11}}>
+                    {!pai&&m.status==="aberta"&&<button className="btn btn-primary" style={{flex:1,padding:9}} onClick={()=>feita(m.id)}>Marcar feita</button>}
+                    {pai&&m.status==="feita"&&<button className="btn btn-primary" style={{flex:1,padding:9}} onClick={()=>aprovar(m.id)}>Aprovar</button>}
+                    {pai&&<button className="btn btn-ghost" style={{padding:"9px 12px"}} onClick={()=>apagar(m.id)}>Apagar</button>}
+                  </div>
+                </div>
+              </div>))}
+          </div>}
+    </div>
+  );
+}
+
+function App(){
+  const [sessao,setSessao]=useState(undefined);
+  const [papel,setPapel]=useState("filha");
+  const [aba,setAba]=useState("agenda");
+  const [toastMsg,setToastMsg]=useState("");
+  const toast=(m)=>{setToastMsg(m);setTimeout(()=>setToastMsg(""),3500);};
+  useEffect(()=>{
+    sb.auth.getSession().then(({data})=>setSessao(data.session));
+    const { data:sub }=sb.auth.onAuthStateChange((_e,s)=>setSessao(s));
+    return ()=>sub.subscription.unsubscribe();
+  },[]);
+  useEffect(()=>{ if(sessao){ sb.from("membros").select("papel,nome").eq("id",sessao.user.id).single().then(({data})=>{if(data)setPapel(data.papel);}); } },[sessao]);
+  if(sessao===undefined) return <div className="wrap" style={{paddingTop:80,textAlign:"center",color:"#857A8C"}}>Carregando…</div>;
+  if(!sessao) return (<div><Login toast={toast}/>{toastMsg&&<div className="toast">{toastMsg}</div>}</div>);
+  return (
+    <div>
+      <div style={{maxWidth:560,margin:"0 auto",padding:"14px 18px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div className="eyebrow">Olá!</div>
+        <button className="btn btn-ghost" style={{padding:"7px 12px",fontSize:13}} onClick={()=>sb.auth.signOut()}>Sair</button>
+      </div>
+      {aba==="agenda"?<Agenda toast={toast}/>:<Missoes papel={papel} toast={toast}/>}
+      <div className="tabs">
+        <button className={"tab"+(aba==="agenda"?" on":"")} onClick={()=>setAba("agenda")}>📅<br/>Agenda</button>
+        <button className={"tab"+(aba==="missoes"?" on":"")} onClick={()=>setAba("missoes")}>✅<br/>Missões</button>
+      </div>
+      {toastMsg&&<div className="toast">{toastMsg}</div>}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
