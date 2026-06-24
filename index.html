@@ -169,20 +169,40 @@ function Missoes(props){
   const semana=semanaAtual(),pai=(papel==="pai"||papel==="mae");
   const vazio={titulo:"",categoria:"Base",pontos:10,responsavel:"",status:"aberta",semana:semana};
   const [missoes,setMissoes]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio);
+  const [meta,setMeta]=useState(null),[metaForm,setMetaForm]=useState({meta_pontos:100,valor:100}),[abrirMeta,setAbrirMeta]=useState(false);
   const carregar=async function(){const r=await sb.from("missoes").select("*").eq("semana",semana).order("criado_em");setMissoes(r.data||[]);};
-  useEffect(function(){carregar();const ch=sb.channel("ms").on("postgres_changes",{event:"*",schema:"public",table:"missoes"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
+  const carregarMeta=async function(){const r=await sb.from("metas").select("*").eq("semana",semana).maybeSingle();if(r.data){setMeta(r.data);setMetaForm({meta_pontos:r.data.meta_pontos,valor:r.data.valor});}else{setMeta(null);}};
+  async function salvarMeta(){const r=await sb.from("metas").upsert({semana:semana,meta_pontos:Number(metaForm.meta_pontos),valor:Number(metaForm.valor)});if(r.error)toast(r.error.message);else{setAbrirMeta(false);carregarMeta();}}
+  useEffect(function(){carregar();carregarMeta();const ch=sb.channel("ms").on("postgres_changes",{event:"*",schema:"public",table:"missoes"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
   async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} const o=Object.assign({},n);o.pontos=Number(n.pontos); const r=await sb.from("missoes").insert(o); if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);} }
   async function feita(id){ await sb.from("missoes").update({status:"feita"}).eq("id",id); }
   async function aprovar(id){ await sb.from("missoes").update({status:"aprovada"}).eq("id",id); }
   async function apagar(id){ await sb.from("missoes").delete().eq("id",id); }
   const corCat=function(c){return c==="Extra"?COR.meninas:c==="Esforço"?"#C99A2E":COR.pais;};
   const setF=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
-  const mesada={}; missoes.filter(function(m){return m.status==="aprovada";}).forEach(function(m){mesada[m.responsavel]=(mesada[m.responsavel]||0)+(m.pontos||0);});
+  const porFilha={}; missoes.forEach(function(m){if(!porFilha[m.responsavel])porFilha[m.responsavel]={ap:0};if(m.status==="aprovada")porFilha[m.responsavel].ap+=(m.pontos||0);});
+  const metaPts=meta?Number(meta.meta_pontos):0, valor=meta?Number(meta.valor):0;
+  const calcMesada=function(ap){ if(!metaPts||!valor)return null; const pct=ap/metaPts; if(pct<0.8)return 0; return Math.min(pct,1.2)*valor; };
+  const fmtR=function(v){return "R$ "+(Math.round(v*100)/100).toFixed(2).replace(".",",");};
   return html`
     <div className="wrap">
       <div className="eyebrow">Missões · ${semana}</div>
       <div className="h1">Tarefas da semana</div>
-      ${Object.keys(mesada).length>0?html`<div className="card" style=${{padding:14,marginTop:14,display:"flex",gap:10,flexWrap:"wrap"}}>${Object.keys(mesada).map(function(q){return html`<span key=${q} className="chip" style=${{background:COR.paisBg,color:COR.pais}}>${q}: ${mesada[q]} pts</span>`;})}</div>`:null}
+      ${html`<div className="card" style=${{padding:14,marginTop:14}}>
+        <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div className="eyebrow">Meta da semana</div>
+          ${pai?html`<span className="note" style=${{cursor:"pointer",color:COR.pais,fontWeight:600}} onClick=${function(){setAbrirMeta(!abrirMeta);}}>${meta?"editar":"definir"}</span>`:null}
+        </div>
+        ${meta?html`<div style=${{marginTop:6,fontSize:14}}>Meta: <b>${metaPts} pts</b> · Mesada cheia: <b>${fmtR(valor)}</b><div className="note" style=${{marginTop:2}}>Abaixo de 80% não recebe · de 80% a 120% é proporcional · acima de 120% trava no teto</div></div>`:html`<div className="note" style=${{marginTop:4}}>Nenhuma meta definida ainda.</div>`}
+        ${(pai&&abrirMeta)?html`<div style=${{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
+            <div style=${{display:"flex",gap:11}}>
+              <div style=${{flex:1}}><span className="label">Meta (pontos)</span><input className="input" type="number" value=${metaForm.meta_pontos} onChange=${function(e){setMetaForm(Object.assign({},metaForm,{meta_pontos:e.target.value}));}}/></div>
+              <div style=${{flex:1}}><span className="label">Mesada cheia (R$)</span><input className="input" type="number" value=${metaForm.valor} onChange=${function(e){setMetaForm(Object.assign({},metaForm,{valor:e.target.value}));}}/></div>
+            </div>
+            <button className="btn btn-primary" onClick=${salvarMeta}>Salvar meta</button>
+          </div>`:null}
+      </div>`}
+      ${(meta&&Object.keys(porFilha).length>0)?html`<div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:10}}>${Object.keys(porFilha).map(function(q){const ap=porFilha[q].ap;const ms=calcMesada(ap);const pct=metaPts?Math.round(ap/metaPts*100):0;return html`<div key=${q} className="card" style=${{padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style=${{fontWeight:700}}>${q}</div><div className="note">${ap}/${metaPts} pts · ${pct}%</div></div><div style=${{fontWeight:800,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:18,color:ms>0?COR.pais:"#857A8C"}}>${ms===null?"—":fmtR(ms)}</div></div>`;})}</div>`:null}
       ${pai?(!abrir
         ? html`<button className="btn btn-ghost" style=${{width:"100%",marginTop:14}} onClick=${function(){setAbrir(true);}}>+ Nova missão</button>`
         : html`<div className="card" style=${{padding:16,marginTop:14,display:"flex",flexDirection:"column",gap:12}}>
