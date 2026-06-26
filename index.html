@@ -241,55 +241,63 @@ function Pote(props){
   </svg>`;
 }
 
+function hojeLocal(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+
 function Missoes(props){
   const toast=props.toast, papel=props.papel;
-  const semana=semanaAtual(), pai=(papel==="pai"||papel==="mae");
-  const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",status:"aberta",semana:semana};
-  const [missoes,setMissoes]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio);
+  const semana=semanaAtual(), pai=(papel==="pai"||papel==="mae"), hoje=hojeLocal();
+  const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",frequencia:"diaria"};
+  const [modelos,setModelos]=useState([]),[checks,setChecks]=useState([]);
+  const [abrir,setAbrir]=useState(false),[n,setN]=useState(vazio);
   const [meta,setMeta]=useState(null),[valorForm,setValorForm]=useState(10),[abrirVal,setAbrirVal]=useState(false);
-  const [filhaAtiva,setFilhaAtiva]=useState("");
-  const [avaliando,setAvaliando]=useState(null),[festa,setFesta]=useState(false);
-  const carregar=async function(){const r=await sb.from("missoes").select("*").eq("semana",semana).order("criado_em");setMissoes(r.data||[]);};
+  const [filhaAtiva,setFilhaAtiva]=useState(""),[avaliando,setAvaliando]=useState(null),[festa,setFesta]=useState(false);
+  const carregar=async function(){const a=await sb.from("missoes_modelo").select("*").eq("ativa",true).order("criado_em");setModelos(a.data||[]);const b=await sb.from("checkins").select("*").eq("semana",semana);setChecks(b.data||[]);};
   const carregarMeta=async function(){const r=await sb.from("metas").select("*").eq("semana",semana).maybeSingle();if(r.data){setMeta(r.data);setValorForm(r.data.valor);}else{setMeta(null);}};
-  useEffect(function(){carregar();carregarMeta();const ch=sb.channel("ms").on("postgres_changes",{event:"*",schema:"public",table:"missoes"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
-  useEffect(function(){ if(missoes.length){ const fs=[]; missoes.forEach(function(m){ if(m.responsavel&&fs.indexOf(m.responsavel)<0)fs.push(m.responsavel); }); if(fs.length&&fs.indexOf(filhaAtiva)<0)setFilhaAtiva(fs[0]); } },[missoes]);
-  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} const o=Object.assign({},n);o.pontos=Number(n.pontos); const r=await sb.from("missoes").insert(o); if(r.error)toast(r.error.message); else{setN(Object.assign({},vazio,{responsavel:n.responsavel}));setAbrir(false);} }
-  async function concluir(id,emoji){ const r=await sb.from("missoes").update({status:"feita",avaliacao:emoji}).eq("id",id); setAvaliando(null); if(r.error)toast(r.error.message); else comemorar(); }
-  async function aprovar(id){ await sb.from("missoes").update({status:"aprovada"}).eq("id",id); }
-  async function apagar(id){ await sb.from("missoes").delete().eq("id",id); }
-  function comemorar(){ setFesta(true); toast("🎉 Missão cumprida!"); setTimeout(function(){setFesta(false);},1500); }
-  async function salvarValor(){ const r=await sb.from("metas").upsert({semana:semana,valor:Number(valorForm),meta_pontos:(meta&&meta.meta_pontos)?meta.meta_pontos:100}); if(r.error)toast(r.error.message); else{setAbrirVal(false);carregarMeta();} }
+  useEffect(function(){carregar();carregarMeta();const ch=sb.channel("f2").on("postgres_changes",{event:"*",schema:"public",table:"missoes_modelo"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"checkins"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
+  useEffect(function(){ if(modelos.length){ const fs=[]; modelos.forEach(function(m){ if(m.responsavel&&fs.indexOf(m.responsavel)<0)fs.push(m.responsavel); }); if(fs.length&&fs.indexOf(filhaAtiva)<0)setFilhaAtiva(fs[0]); } },[modelos]);
+
   const setF=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
-  const trocaCat=function(c){setN(function(p){return Object.assign({},p,{categoria:c,pontos:catInfo(c).pts});});};
+  const trocaCat=function(cat){setN(function(p){return Object.assign({},p,{categoria:cat,pontos:catInfo(cat).pts});});};
+  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} const r=await sb.from("missoes_modelo").insert({titulo:n.titulo,categoria:n.categoria,pontos:Number(n.pontos),responsavel:n.responsavel,frequencia:n.frequencia}); if(r.error)toast(r.error.message); else{setN(Object.assign({},vazio,{responsavel:n.responsavel}));setAbrir(false);} }
+  async function apagarMod(id){ await sb.from("missoes_modelo").delete().eq("id",id); }
+  function comemorar(){ setFesta(true); toast("🎉 Missão cumprida!"); setTimeout(function(){setFesta(false);},1500); }
+  async function concluir(m,emoji){ const sem=(m.frequencia==="semanal"); const ja=checks.find(function(cc){return cc.modelo_id===m.id && (sem?true:cc.dia===hoje);}); setAvaliando(null); if(ja)return; const r=await sb.from("checkins").insert({modelo_id:m.id,responsavel:m.responsavel,semana:semana,dia:hoje,status:"feita",avaliacao:emoji}); if(r.error)toast(r.error.message); else comemorar(); }
+  async function desfazer(m){ const sem=(m.frequencia==="semanal"); if(sem)await sb.from("checkins").delete().eq("modelo_id",m.id).eq("semana",semana); else await sb.from("checkins").delete().eq("modelo_id",m.id).eq("dia",hoje); }
+  async function salvarValor(){ const r=await sb.from("metas").upsert({semana:semana,valor:Number(valorForm),meta_pontos:(meta&&meta.meta_pontos)?meta.meta_pontos:100}); if(r.error)toast(r.error.message); else{setAbrirVal(false);carregarMeta();} }
+
+  const checksDe=function(id){return checks.filter(function(cc){return cc.modelo_id===id;});};
+  const diasFeitos=function(id){var s={};checksDe(id).forEach(function(cc){s[cc.dia]=1;});return Object.keys(s).length;};
+  const feitoHoje=function(id){return checks.some(function(cc){return cc.modelo_id===id && cc.dia===hoje;});};
+  const feitoSemana=function(id){return checks.some(function(cc){return cc.modelo_id===id;});};
   const valor=meta?Number(meta.valor):0;
   const fmtR=function(v){return "R$ "+(Math.round(v*100)/100).toFixed(2).replace(".",",");};
 
-  const filhas=[]; missoes.forEach(function(m){ if(m.responsavel&&filhas.indexOf(m.responsavel)<0)filhas.push(m.responsavel); });
-  function calc(nome){ var ct=0,cf=0,et=0,ef=0; missoes.forEach(function(m){ if(m.responsavel!==nome)return; var ex=(m.categoria==="Extra"); var done=(m.status==="feita"||m.status==="aprovada"); var p=m.pontos||0; if(ex){et+=p; if(done)ef+=p;} else {ct+=p; if(done)cf+=p;} }); var basePct=ct?cf/ct:0; var totalPct=ct?(cf+ef)/ct:0; var destr=basePct>=0.8; var mesada=(!valor||!ct)?null:(destr?Math.min(totalPct,1.2)*valor:0); return {ct:ct,cf:cf,et:et,ef:ef,basePct:basePct,totalPct:totalPct,destr:destr,mesada:mesada}; }
+  const filhas=[]; modelos.forEach(function(m){ if(m.responsavel&&filhas.indexOf(m.responsavel)<0)filhas.push(m.responsavel); });
+  function calc(nome){ var ct=0,cf=0,et=0,ef=0; modelos.forEach(function(m){ if(m.responsavel!==nome)return; var sem=(m.frequencia==="semanal"); var dias=sem?1:7; var poss=(m.pontos||0)*dias; var feitos=sem?(feitoSemana(m.id)?1:0):Math.min(diasFeitos(m.id),7); var pts=(m.pontos||0)*feitos; if(m.categoria==="Extra"){et+=poss;ef+=pts;} else {ct+=poss;cf+=pts;} }); var basePct=ct?cf/ct:0; var totalPct=ct?(cf+ef)/ct:0; var destr=basePct>=0.8; var mesada=(!valor||!ct)?null:(destr?Math.min(totalPct,1.2)*valor:0); return {ct:ct,cf:cf,ef:ef,basePct:basePct,totalPct:totalPct,destr:destr,mesada:mesada}; }
 
-  const dia=new Date().getDay();
-  const temaHoje=JORNADA[dia];
+  const diaSem=new Date().getDay(), temaHoje=JORNADA[diaSem];
   const c=filhaAtiva?calc(filhaAtiva):null;
-  const msFilha=missoes.filter(function(m){return m.responsavel===filhaAtiva;});
-  function grupo(cat){ return msFilha.filter(function(m){ if(cat==="Extra")return m.categoria==="Extra"; if(cat==="Essencial")return m.categoria==="Essencial"||m.categoria==="Base"; if(cat==="Crescimento")return m.categoria==="Crescimento"||m.categoria==="Esforço"; return false; }); }
+  const modsFilha=modelos.filter(function(m){return m.responsavel===filhaAtiva;});
+  const diarias=modsFilha.filter(function(m){return m.frequencia!=="semanal";});
+  const hojeFeitas=diarias.filter(function(m){return feitoHoje(m.id);}).length;
+  function grupo(cat){ return modsFilha.filter(function(m){ if(cat==="Extra")return m.categoria==="Extra"; if(cat==="Essencial")return m.categoria==="Essencial"||m.categoria==="Base"; if(cat==="Crescimento")return m.categoria==="Crescimento"||m.categoria==="Esforço"; return false; }); }
 
-  function cardMissao(m){
-    var info=catInfo(m.categoria);
+  function cardMod(m){
+    var info=catInfo(m.categoria); var sem=(m.frequencia==="semanal"); var feito=sem?feitoSemana(m.id):feitoHoje(m.id); var df=diasFeitos(m.id);
     return html`<div className="card" key=${m.id} style=${{display:"flex",overflow:"hidden",padding:0}}>
       <div style=${{width:7,background:info.cor}}></div>
       <div style=${{padding:"12px 13px",flex:1}}>
         <div style=${{display:"flex",justifyContent:"space-between",gap:8}}>
           <div style=${{display:"flex",gap:9,alignItems:"flex-start"}}>
             <span style=${{fontSize:22,lineHeight:1.1}}>${info.emoji}</span>
-            <div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15.5}}>${m.titulo}</div><div className="note">${m.pontos} ${m.pontos===1?"ponto":"pontos"}${m.avaliacao?(" · "+m.avaliacao):""}</div></div>
+            <div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15.5}}>${m.titulo}</div><div className="note">${sem?"semanal":"diária"} · ${m.pontos} ${m.pontos===1?"ponto":"pontos"}${!sem?(" · 🔥 "+df+"/7 dias"):""}</div></div>
           </div>
-          <span className="chip" style=${{height:"fit-content",background:m.status==="aprovada"?COR.paisBg:m.status==="feita"?"#FBF0D8":"#F0EBE3",color:m.status==="aprovada"?COR.pais:m.status==="feita"?"#C99A2E":"#857A8C"}}>${m.status==="aprovada"?"✓ ok":m.status==="feita"?"aguardando":"a fazer"}</span>
+          ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 10px",fontSize:14}} onClick=${function(){apagarMod(m.id);}}>×</button>`:null}
         </div>
-        ${avaliando===m.id?html`<div style=${{marginTop:11}}><div className="note" style=${{marginBottom:6}}>Como foi essa missão?</div><div style=${{display:"flex",gap:4,justifyContent:"space-between"}}>${AVAL.map(function(e){return html`<button key=${e} className="emoji-aval" onClick=${function(){concluir(m.id,e);}}>${e}</button>`;})}</div></div>`
-          :html`<div style=${{display:"flex",gap:8,marginTop:11}}>
-            ${m.status==="aberta"?html`<button className="btn btn-primary" style=${{flex:1,padding:9}} onClick=${function(){setAvaliando(m.id);}}>Concluir missão</button>`:null}
-            ${(pai&&m.status==="feita")?html`<button className="btn btn-primary" style=${{flex:1,padding:9}} onClick=${function(){aprovar(m.id);}}>Aprovar</button>`:null}
-            ${pai?html`<button className="btn btn-ghost" style=${{padding:"9px 12px"}} onClick=${function(){apagar(m.id);}}>Apagar</button>`:null}
+        ${avaliando===m.id?html`<div style=${{marginTop:11}}><div className="note" style=${{marginBottom:6}}>Como foi essa missão?</div><div style=${{display:"flex",gap:4,justifyContent:"space-between"}}>${AVAL.map(function(e){return html`<button key=${e} className="emoji-aval" onClick=${function(){concluir(m,e);}}>${e}</button>`;})}</div></div>`
+          :html`<div style=${{marginTop:11}}>
+            ${feito?html`<button className="btn btn-ghost" style=${{width:"100%",color:COR.pais,borderColor:COR.pais}} onClick=${function(){desfazer(m);}}>✓ ${sem?"Feita esta semana":"Feito hoje"} · desfazer</button>`
+              :html`<button className="btn btn-primary" style=${{width:"100%"}} onClick=${function(){setAvaliando(m.id);}}>Concluir ${sem?"agora":"hoje"}</button>`}
           </div>`}
       </div>
     </div>`;
@@ -308,7 +316,8 @@ function Missoes(props){
         <${Pote} frac=${Math.min(c.totalPct/1.2,1)} destravado=${c.destr}/>
         <div style=${{flex:1}}>
           <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:30,lineHeight:1}}>${Math.round(Math.min(c.totalPct,1.2)*100)}<span style=${{fontSize:16}}>%</span></div>
-          <div className="note" style=${{marginTop:3}}>${Math.round(c.basePct*100)}% das missões${c.ef>0?(" · +"+Math.round((c.ef/(c.ct||1))*100)+"% bônus"):""}</div>
+          <div className="note" style=${{marginTop:3}}>da semana${c.ef>0?(" · +"+Math.round((c.ef/(c.ct||1))*100)+"% bônus"):""}</div>
+          ${diarias.length>0?html`<div className="note" style=${{marginTop:2}}>Hoje: ${hojeFeitas}/${diarias.length} missões do dia</div>`:null}
           <div style=${{marginTop:10,padding:"8px 11px",borderRadius:12,background:c.destr?COR.meninasBg:"#F0EBE3",fontSize:13,fontWeight:600,color:c.destr?COR.meninas:"#857A8C"}}>
             ${c.mesada===null?"Defina o valor da semanada":c.destr?("🔓 Semanada: "+fmtR(c.mesada)):("🔒 Faltam "+Math.max(0,Math.ceil((0.8-c.basePct)*100))+"% pra liberar")}
           </div>
@@ -326,19 +335,21 @@ function Missoes(props){
 
       ${(pai&&abrir)?html`<div className="card" style=${{padding:16,marginTop:12,display:"flex",flexDirection:"column",gap:12}}>
         <div><span className="label">Missão</span><input className="input" value=${n.titulo} onChange=${function(e){setF("titulo",e.target.value);}} placeholder="Ex: Arrumar a cama"/></div>
-        <div><span className="label">Categoria</span><div style=${{display:"flex",gap:8}}>${CATEGORIAS.map(function(cat){var inf=catInfo(cat);var on=(n.categoria===cat);return html`<button key=${cat} type="button" className="fchip" style=${on?{background:inf.cor,color:"#fff",borderColor:inf.cor,flex:1}:{flex:1}} onClick=${function(){trocaCat(cat);}}>${inf.emoji} ${cat}</button>`;})}</div><div className="note" style=${{marginTop:6}}>Essencial vale 1 ponto · Crescimento 2 · Extra 4 (bônus)</div></div>
+        <div><span className="label">Categoria</span><div style=${{display:"flex",gap:8}}>${CATEGORIAS.map(function(cat){var inf=catInfo(cat);var on=(n.categoria===cat);return html`<button key=${cat} type="button" className="fchip" style=${on?{background:inf.cor,color:"#fff",borderColor:inf.cor,flex:1}:{flex:1}} onClick=${function(){trocaCat(cat);}}>${inf.emoji} ${cat}</button>`;})}</div></div>
+        <div><span className="label">Frequência</span><div style=${{display:"flex",gap:8}}>${[["diaria","Diária"],["semanal","Semanal"]].map(function(f){var on=(n.frequencia===f[0]);return html`<button key=${f[0]} type="button" className=${"fchip"+(on?" on":"")} style=${{flex:1}} onClick=${function(){setF("frequencia",f[0]);}}>${f[1]}</button>`;})}</div></div>
         <div style=${{display:"flex",gap:11}}>
           <div style=${{flex:1}}><span className="label">Responsável (nome)</span><input className="input" value=${n.responsavel} onChange=${function(e){setF("responsavel",e.target.value);}} placeholder="Ex: Larissa"/></div>
           <div style=${{width:84}}><span className="label">Pontos</span><input className="input" type="number" value=${n.pontos} onChange=${function(e){setF("pontos",e.target.value);}}/></div>
         </div>
+        <div className="note">Diária conta até 7 vezes na semana · semanal conta 1 vez. Essencial 1 pt · Crescimento 2 · Extra 4 (bônus).</div>
         <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${add}>Criar missão</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);}}>Cancelar</button></div>
       </div>`:null}
 
-      ${missoes.length===0?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>🗺️</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>A jornada ainda não começou</div><div className="note" style=${{marginTop:4}}>${pai?"Toque em + Nova missão para criar a primeira.":"Peça aos pais para criar as missões."}</div></div>`
+      ${modelos.length===0?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>🗺️</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>A jornada ainda não começou</div><div className="note" style=${{marginTop:4}}>${pai?"Toque em + Nova missão para criar a primeira.":"Peça aos pais para criar as missões."}</div></div>`
         :(filhaAtiva?html`<div>
           ${["Essencial","Crescimento","Extra"].map(function(cat){var lista=grupo(cat);if(!lista.length)return null;var inf=catInfo(cat);return html`<div key=${cat}>
             <div className="catit"><span style=${{fontSize:15}}>${inf.emoji}</span>${cat==="Extra"?"Extras (bônus)":cat==="Essencial"?"Essenciais":"Crescimento"}</div>
-            <div style=${{display:"flex",flexDirection:"column",gap:10}}>${lista.map(cardMissao)}</div>
+            <div style=${{display:"flex",flexDirection:"column",gap:10}}>${lista.map(cardMod)}</div>
           </div>`;})}
         </div>`:null)}
     </div>`;
