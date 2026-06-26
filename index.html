@@ -46,6 +46,17 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__add('F
   .seg{flex:1;text-align:center;padding:10px;border-radius:11px;border:1px solid #ECE3D8;font-weight:600;font-size:14px;background:#fff;cursor:pointer}
   .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#2A2233;color:#fff;font-size:14px;padding:12px 18px;border-radius:13px;max-width:90%;text-align:center}
   .note{font-size:12.5px;color:#857A8C;line-height:1.5}
+  .capa-portal{position:relative;display:block;width:100%;text-align:left;border:none;cursor:pointer;border-radius:22px;padding:20px 20px 18px;color:#FBF6EF;overflow:hidden;box-shadow:0 12px 26px -16px rgba(42,34,51,.55)}
+  .capa-portal:active{transform:scale(.985)}
+  .pt-emoji{font-size:30px;line-height:1}
+  .pt-tit{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:26px;line-height:1;margin-top:10px}
+  .pt-desc{font-size:13.5px;opacity:.93;margin-top:4px}
+  .pt-dado{font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin-top:15px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 11px;border-radius:999px}
+  .pt-seta{position:absolute;right:18px;top:20px;font-size:22px;opacity:.9;z-index:2}
+  .pt-bolha{position:absolute;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.12);right:-46px;bottom:-60px;z-index:0}
+  @keyframes subir{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  .anim{opacity:0;animation:subir .55s cubic-bezier(.2,.7,.2,1) forwards}
+  @media (prefers-reduced-motion:reduce){.anim{animation:none;opacity:1}}
 </style>
 </head>
 <body>
@@ -273,10 +284,70 @@ function Missoes(props){
     </div>`;
 }
 
+function Inicio(props){
+  const nome=props.nome;
+  const [futuros,setFuturos]=useState(null),[abertas,setAbertas]=useState(null),[pct,setPct]=useState(null),[temMeta,setTemMeta]=useState(false);
+  useEffect(function(){
+    const hoje=new Date().toISOString().slice(0,10);
+    sb.from("eventos").select("data").then(function(r){if(r.data)setFuturos(r.data.filter(function(e){return (e.data||"")>=hoje;}).length);});
+    const semana=semanaAtual();
+    sb.from("missoes").select("pontos,status").eq("semana",semana).then(function(r){
+      if(!r.data)return;
+      setAbertas(r.data.filter(function(m){return m.status==="aberta";}).length);
+      const ap=r.data.filter(function(m){return m.status==="aprovada";}).reduce(function(s,m){return s+(m.pontos||0);},0);
+      sb.from("metas").select("meta_pontos").eq("semana",semana).maybeSingle().then(function(rm){
+        if(rm.data&&rm.data.meta_pontos){setTemMeta(true);setPct(Math.round(ap/rm.data.meta_pontos*100));}
+      });
+    });
+  },[]);
+  const ag=futuros===null?"…":(futuros>0?(futuros+(futuros===1?" evento próximo":" eventos próximos")):"Nada marcado ainda");
+  const ms=abertas===null?"…":(temMeta&&pct!==null?("Meta "+pct+"% · "+abertas+(abertas===1?" aberta":" abertas")):(abertas>0?(abertas+(abertas===1?" missão aberta":" missões abertas")):"Tudo em dia"));
+  const dias=["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+  const meses=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+  const dt=new Date(),h=dt.getHours();
+  const ext=dias[dt.getDay()]+" · "+dt.getDate()+" de "+meses[dt.getMonth()];
+  const saud=(h<12?"Bom dia":(h<18?"Boa tarde":"Boa noite"))+(nome?(", "+String(nome).split(" ")[0]):"")+"!";
+  return html`
+    <div className="wrap" style=${{paddingBottom:28}}>
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:26}}>
+        <div className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:15}}>🏠</span>Hub da Família</div>
+        <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${props.sair}>Sair</button>
+      </div>
+      <div className="anim">
+        <div className="eyebrow">${ext}</div>
+        <div className="h1" style=${{fontSize:34,marginTop:8}}>${saud}</div>
+        <div className="note" style=${{marginTop:6,fontSize:14}}>O que a família vai organizar hoje?</div>
+      </div>
+      <div style=${{display:"flex",flexDirection:"column",gap:14,marginTop:24}}>
+        <button className="capa-portal anim" style=${{animationDelay:".08s",background:"linear-gradient(150deg,#2E8B83,#256e68)"}} onClick=${function(){props.ir("agenda");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">📅</div>
+            <div className="pt-tit">Agenda</div>
+            <div className="pt-desc">Eventos e festas da família</div>
+            <div className="pt-dado">${ag}</div>
+          </div>
+        </button>
+        <button className="capa-portal anim" style=${{animationDelay:".16s",background:"linear-gradient(150deg,#EC6A4C,#d4533a)"}} onClick=${function(){props.ir("missoes");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">🎯</div>
+            <div className="pt-tit">Missões</div>
+            <div className="pt-desc">Tarefas, pontos e mesada</div>
+            <div className="pt-dado">${ms}</div>
+          </div>
+        </button>
+      </div>
+    </div>`;
+}
+
 function App(){
   const [sessao,setSessao]=useState(undefined);
   const [papel,setPapel]=useState("filha");
-  const [aba,setAba]=useState("agenda");
+  const [nome,setNome]=useState("");
+  const [aba,setAba]=useState("inicio");
   const [toastMsg,setToastMsg]=useState("");
   const toast=function(m){setToastMsg(m);setTimeout(function(){setToastMsg("");},3500);};
   useEffect(function(){
@@ -284,17 +355,19 @@ function App(){
     const sub=sb.auth.onAuthStateChange(function(_e,s){setSessao(s);});
     return function(){ if(sub&&sub.data&&sub.data.subscription) sub.data.subscription.unsubscribe(); };
   },[]);
-  useEffect(function(){ if(sessao){ sb.from("membros").select("papel,nome").eq("id",sessao.user.id).single().then(function(r){if(r.data)setPapel(r.data.papel);}); } },[sessao]);
+  useEffect(function(){ if(sessao){ sb.from("membros").select("papel,nome").eq("id",sessao.user.id).single().then(function(r){if(r.data){setPapel(r.data.papel);setNome(r.data.nome||"");}}); } },[sessao]);
   if(sessao===undefined) return html`<div className="wrap" style=${{paddingTop:80,textAlign:"center",color:"#857A8C"}}>Carregando…</div>`;
   if(!sessao) return html`<div><${Login} toast=${toast}/>${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}</div>`;
+  if(aba==="inicio") return html`<div><${Inicio} papel=${papel} nome=${nome} toast=${toast} ir=${function(a){setAba(a);}} sair=${function(){sb.auth.signOut();}}/>${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}</div>`;
   return html`
     <div>
       <div style=${{maxWidth:560,margin:"0 auto",padding:"14px 18px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div className="eyebrow">Olá!</div>
+        <div className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</div>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
       ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:html`<${Missoes} papel=${papel} toast=${toast}/>`}
       <div className="tabs">
+        <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
         <button className=${"tab"+(aba==="missoes"?" on":"")} onClick=${function(){setAba("missoes");}}>✅<br/>Missões</button>
       </div>
