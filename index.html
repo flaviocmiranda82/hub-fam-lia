@@ -306,7 +306,7 @@ function Inicio(props){
   const meses=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
   const dt=new Date(),h=dt.getHours();
   const ext=dias[dt.getDay()]+" · "+dt.getDate()+" de "+meses[dt.getMonth()];
-  const saud=(h<12?"Bom dia":(h<18?"Boa tarde":"Boa noite"))+(nome?(", "+String(nome).split(" ")[0]):"")+"!";
+  const saud=(h<12?"Bom dia":(h<18?"Boa tarde":"Boa noite"))+((nome&&nome.indexOf("@")<0)?(", "+String(nome).trim().split(" ")[0]):"")+"!";
   return html`
     <div className="wrap" style=${{paddingBottom:28}}>
       <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:26}}>
@@ -362,7 +362,7 @@ function App(){
   return html`
     <div>
       <div style=${{maxWidth:560,margin:"0 auto",padding:"14px 18px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</div>
+        <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
       ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:html`<${Missoes} papel=${papel} toast=${toast}/>`}
