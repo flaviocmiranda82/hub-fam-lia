@@ -225,13 +225,20 @@ const CATEGORIAS=["Essencial","Crescimento","Extra"];
 function catInfo(c){return CATS[c]||{pts:1,emoji:"•",cor:"#857A8C"};}
 const JORNADA=["Dia da Fé e da Gratidão","Início da Jornada","Trilha da Responsabilidade","Desafio da Coragem","Missão da Gentileza","Reta Final","Dia das Missões Extras"];
 const AVAL=["😄","🙂","😐","😓","😞"];
+const DIAS_ABREV=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const SUGESTOES={
+  Essencial:["Arrumar a cama","Escovar os dentes","Organizar o quarto","Fazer o dever de casa","Preparar a mochila para o dia seguinte","Participar das refeições com bom comportamento","Colocar o prato e o copo na cozinha","Cumprir os horários da família","Tratar os familiares com respeito"],
+  Crescimento:["Ler por 15 a 20 minutos","Contar aos pais algo que aprendeu na leitura","Fazer uma oração","Ler ou ouvir uma história bíblica","Praticar uma atividade física","Fazer uma atividade criativa","Fazer uma boa ação ou ser gentil","Dizer três gratidões do dia","Dizer 'Te amo' e abraçar a família","Participar da igreja","Participar da célula"],
+  Extra:["Ajudar a pôr e tirar a mesa","Ajudar a organizar uma área da casa","Separar roupas ou objetos para doação","Ajudar a irmã em uma atividade","Preparar uma surpresa gentil","Ler além do tempo mínimo","Participar da escolinha da igreja"]
+};
 function Pote(props){
   var frac=Math.max(0,Math.min(props.frac||0,1));
+  var W=props.w||100, H=Math.round(W*1.46);
   var topo=46, base=156, alt=base-topo;
   var fillH=alt*frac, yFill=base-fillH;
   var cor=props.destravado?"#EC6A4C":"#C9B79C";
   var y80=base-alt*(0.8/1.2);
-  return html`<svg viewBox="0 0 120 175" width="100" height="146" style=${{flexShrink:0}}>
+  return html`<svg viewBox="0 0 120 175" width=${W} height=${H} style=${{flexShrink:0}}>
     <defs><clipPath id="jarc"><rect x="24" y="46" width="72" height="110" rx="18"/></clipPath></defs>
     <rect x="34" y="30" width="52" height="20" rx="9" fill="#fff" stroke="#E3D8C9" stroke-width="2"/>
     <rect x="24" y="46" width="72" height="110" rx="18" fill="#FBF6EF" stroke="#E3D8C9" stroke-width="2"/>
@@ -246,25 +253,31 @@ function hojeLocal(){const d=new Date();return d.getFullYear()+"-"+String(d.getM
 function Missoes(props){
   const toast=props.toast, papel=props.papel;
   const semana=semanaAtual(), pai=(papel==="pai"||papel==="mae"), hoje=hojeLocal();
-  const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",frequencia:"diaria"};
+  const diaSem=new Date().getDay();
+  const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",frequencia:"diaria",recorrente:true,dias:[0,1,2,3,4,5,6]};
   const [modelos,setModelos]=useState([]),[checks,setChecks]=useState([]);
   const [abrir,setAbrir]=useState(false),[n,setN]=useState(vazio);
   const [meta,setMeta]=useState(null),[valorForm,setValorForm]=useState(10),[abrirVal,setAbrirVal]=useState(false);
   const [filhaAtiva,setFilhaAtiva]=useState(""),[avaliando,setAvaliando]=useState(null),[festa,setFesta]=useState(false);
-  const carregar=async function(){const a=await sb.from("missoes_modelo").select("*").eq("ativa",true).order("criado_em");setModelos(a.data||[]);const b=await sb.from("checkins").select("*").eq("semana",semana);setChecks(b.data||[]);};
+  const carregar=async function(){const a=await sb.from("missoes_modelo").select("*").eq("ativa",true).or("recorrente.eq.true,semana.eq."+semana).order("criado_em");setModelos(a.data||[]);const b=await sb.from("checkins").select("*").eq("semana",semana);setChecks(b.data||[]);};
   const carregarMeta=async function(){const r=await sb.from("metas").select("*").eq("semana",semana).maybeSingle();if(r.data){setMeta(r.data);setValorForm(r.data.valor);}else{setMeta(null);}};
   useEffect(function(){carregar();carregarMeta();const ch=sb.channel("f2").on("postgres_changes",{event:"*",schema:"public",table:"missoes_modelo"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"checkins"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
   useEffect(function(){ if(modelos.length){ const fs=[]; modelos.forEach(function(m){ if(m.responsavel&&fs.indexOf(m.responsavel)<0)fs.push(m.responsavel); }); if(fs.length&&fs.indexOf(filhaAtiva)<0)setFilhaAtiva(fs[0]); } },[modelos]);
 
   const setF=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
   const trocaCat=function(cat){setN(function(p){return Object.assign({},p,{categoria:cat,pontos:catInfo(cat).pts});});};
-  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} const r=await sb.from("missoes_modelo").insert({titulo:n.titulo,categoria:n.categoria,pontos:Number(n.pontos),responsavel:n.responsavel,frequencia:n.frequencia}); if(r.error)toast(r.error.message); else{setN(Object.assign({},vazio,{responsavel:n.responsavel}));setAbrir(false);} }
+  const toggleDia=function(d){setN(function(p){var arr=p.dias.slice();var i=arr.indexOf(d);if(i>=0)arr.splice(i,1);else arr.push(d);if(arr.length===0)arr=[d];return Object.assign({},p,{dias:arr});});};
+  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} var dcsv=(n.frequencia==="semanal"||n.dias.length===7)?null:n.dias.slice().sort(function(a,b){return a-b;}).join(","); const r=await sb.from("missoes_modelo").insert({titulo:n.titulo,categoria:n.categoria,pontos:Number(n.pontos),responsavel:n.responsavel,frequencia:n.frequencia,recorrente:n.recorrente,semana:semana,dias:dcsv}); if(r.error)toast(r.error.message); else{setN(Object.assign({},vazio,{responsavel:n.responsavel}));setAbrir(false);} }
   async function apagarMod(id){ await sb.from("missoes_modelo").delete().eq("id",id); }
+  async function toggleRec(m){ const r=await sb.from("missoes_modelo").update({recorrente:!m.recorrente,semana:semana}).eq("id",m.id); if(r.error)toast(r.error.message); }
   function comemorar(){ setFesta(true); toast("🎉 Missão cumprida!"); setTimeout(function(){setFesta(false);},1500); }
   async function concluir(m,emoji){ const sem=(m.frequencia==="semanal"); const ja=checks.find(function(cc){return cc.modelo_id===m.id && (sem?true:cc.dia===hoje);}); setAvaliando(null); if(ja)return; const r=await sb.from("checkins").insert({modelo_id:m.id,responsavel:m.responsavel,semana:semana,dia:hoje,status:"feita",avaliacao:emoji}); if(r.error)toast(r.error.message); else comemorar(); }
   async function desfazer(m){ const sem=(m.frequencia==="semanal"); if(sem)await sb.from("checkins").delete().eq("modelo_id",m.id).eq("semana",semana); else await sb.from("checkins").delete().eq("modelo_id",m.id).eq("dia",hoje); }
   async function salvarValor(){ const r=await sb.from("metas").upsert({semana:semana,valor:Number(valorForm),meta_pontos:(meta&&meta.meta_pontos)?meta.meta_pontos:100}); if(r.error)toast(r.error.message); else{setAbrirVal(false);carregarMeta();} }
 
+  const diasArr=function(m){ if(!m.dias) return [0,1,2,3,4,5,6]; return String(m.dias).split(",").map(Number); };
+  const valeHoje=function(m){ if(m.frequencia==="semanal") return true; return diasArr(m).indexOf(diaSem)>=0; };
+  const rotuloDias=function(m){ if(m.frequencia==="semanal"||!m.dias) return ""; var a=diasArr(m); if(a.length===7) return ""; return a.map(function(d){return DIAS_ABREV[d];}).join(", "); };
   const checksDe=function(id){return checks.filter(function(cc){return cc.modelo_id===id;});};
   const diasFeitos=function(id){var s={};checksDe(id).forEach(function(cc){s[cc.dia]=1;});return Object.keys(s).length;};
   const feitoHoje=function(id){return checks.some(function(cc){return cc.modelo_id===id && cc.dia===hoje;});};
@@ -273,32 +286,38 @@ function Missoes(props){
   const fmtR=function(v){return "R$ "+(Math.round(v*100)/100).toFixed(2).replace(".",",");};
 
   const filhas=[]; modelos.forEach(function(m){ if(m.responsavel&&filhas.indexOf(m.responsavel)<0)filhas.push(m.responsavel); });
-  function calc(nome){ var ct=0,cf=0,et=0,ef=0; modelos.forEach(function(m){ if(m.responsavel!==nome)return; var sem=(m.frequencia==="semanal"); var dias=sem?1:7; var poss=(m.pontos||0)*dias; var feitos=sem?(feitoSemana(m.id)?1:0):Math.min(diasFeitos(m.id),7); var pts=(m.pontos||0)*feitos; if(m.categoria==="Extra"){et+=poss;ef+=pts;} else {ct+=poss;cf+=pts;} }); var basePct=ct?cf/ct:0; var totalPct=ct?(cf+ef)/ct:0; var destr=basePct>=0.8; var mesada=(!valor||!ct)?null:(destr?Math.min(totalPct,1.2)*valor:0); return {ct:ct,cf:cf,ef:ef,basePct:basePct,totalPct:totalPct,destr:destr,mesada:mesada}; }
+  function calc(nome){ var ct=0,cf=0,et=0,ef=0; modelos.forEach(function(m){ if(m.responsavel!==nome)return; var sem=(m.frequencia==="semanal"); var dias=sem?1:diasArr(m).length; var poss=(m.pontos||0)*dias; var feitos=sem?(feitoSemana(m.id)?1:0):Math.min(diasFeitos(m.id),diasArr(m).length); var pts=(m.pontos||0)*feitos; if(m.categoria==="Extra"){et+=poss;ef+=pts;} else {ct+=poss;cf+=pts;} }); var basePct=ct?cf/ct:0; var totalPct=ct?(cf+ef)/ct:0; var destr=basePct>=0.8; var mesada=(!valor||!ct)?null:(destr?Math.min(totalPct,1.2)*valor:0); return {ct:ct,cf:cf,ef:ef,basePct:basePct,totalPct:totalPct,destr:destr,mesada:mesada}; }
+  function calcDia(nome){ var ct=0,cf=0,et=0,ef=0; modelos.forEach(function(m){ if(m.responsavel!==nome)return; if(m.frequencia==="semanal")return; if(!valeHoje(m))return; var p=m.pontos||0; var done=feitoHoje(m.id)?1:0; if(m.categoria==="Extra"){et+=p;ef+=p*done;} else {ct+=p;cf+=p*done;} }); var basePct=ct?cf/ct:0; var totalPct=ct?(cf+ef)/ct:0; var destr=basePct>=0.8; return {ct:ct,basePct:basePct,totalPct:totalPct,destr:destr}; }
 
-  const diaSem=new Date().getDay(), temaHoje=JORNADA[diaSem];
+  const temaHoje=JORNADA[diaSem];
   const c=filhaAtiva?calc(filhaAtiva):null;
+  const cd=filhaAtiva?calcDia(filhaAtiva):null;
   const modsFilha=modelos.filter(function(m){return m.responsavel===filhaAtiva;});
-  const diarias=modsFilha.filter(function(m){return m.frequencia!=="semanal";});
-  const hojeFeitas=diarias.filter(function(m){return feitoHoje(m.id);}).length;
+  const diariasHoje=modsFilha.filter(function(m){return m.frequencia!=="semanal"&&valeHoje(m);});
+  const hojeFeitas=diariasHoje.filter(function(m){return feitoHoje(m.id);}).length;
   function grupo(cat){ return modsFilha.filter(function(m){ if(cat==="Extra")return m.categoria==="Extra"; if(cat==="Essencial")return m.categoria==="Essencial"||m.categoria==="Base"; if(cat==="Crescimento")return m.categoria==="Crescimento"||m.categoria==="Esforço"; return false; }); }
 
   function cardMod(m){
-    var info=catInfo(m.categoria); var sem=(m.frequencia==="semanal"); var feito=sem?feitoSemana(m.id):feitoHoje(m.id); var df=diasFeitos(m.id);
-    return html`<div className="card" key=${m.id} style=${{display:"flex",overflow:"hidden",padding:0}}>
+    var info=catInfo(m.categoria); var sem=(m.frequencia==="semanal"); var feito=sem?feitoSemana(m.id):feitoHoje(m.id); var df=diasFeitos(m.id); var rot=rotuloDias(m); var naoHoje=(!sem&&!valeHoje(m));
+    return html`<div className="card" key=${m.id} style=${{display:"flex",overflow:"hidden",padding:0,opacity:naoHoje?0.62:1}}>
       <div style=${{width:7,background:info.cor}}></div>
       <div style=${{padding:"12px 13px",flex:1}}>
         <div style=${{display:"flex",justifyContent:"space-between",gap:8}}>
           <div style=${{display:"flex",gap:9,alignItems:"flex-start"}}>
             <span style=${{fontSize:22,lineHeight:1.1}}>${info.emoji}</span>
-            <div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15.5}}>${m.titulo}</div><div className="note">${sem?"semanal":"diária"} · ${m.pontos} ${m.pontos===1?"ponto":"pontos"}${!sem?(" · 🔥 "+df+"/7 dias"):""}</div></div>
+            <div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15.5}}>${m.titulo}</div><div className="note">${sem?"semanal":"diária"} · ${m.pontos} ${m.pontos===1?"ponto":"pontos"}${rot?(" · 📅 "+rot):""}${!sem?(" · 🔥 "+df+"/"+diasArr(m).length):""}</div></div>
           </div>
-          ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 10px",fontSize:14}} onClick=${function(){apagarMod(m.id);}}>×</button>`:null}
+          <div style=${{display:"flex",gap:6,alignItems:"flex-start",flexShrink:0}}>
+            ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 9px",fontSize:13}} title=${m.recorrente?"Volta toda semana — tocar para cancelar":"Só esta semana — tocar para repetir toda semana"} onClick=${function(){toggleRec(m);}}>${m.recorrente?"🔁":"1×"}</button>`:null}
+            ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 10px",fontSize:14}} onClick=${function(){apagarMod(m.id);}}>×</button>`:null}
+          </div>
         </div>
-        ${avaliando===m.id?html`<div style=${{marginTop:11}}><div className="note" style=${{marginBottom:6}}>Como foi essa missão?</div><div style=${{display:"flex",gap:4,justifyContent:"space-between"}}>${AVAL.map(function(e){return html`<button key=${e} className="emoji-aval" onClick=${function(){concluir(m,e);}}>${e}</button>`;})}</div></div>`
+        ${naoHoje?html`<div className="note" style=${{marginTop:10,fontWeight:600}}>📅 Aparece ${rot?("em "+rot):"em outro dia"}</div>`
+          :(avaliando===m.id?html`<div style=${{marginTop:11}}><div className="note" style=${{marginBottom:6}}>Como foi essa missão?</div><div style=${{display:"flex",gap:4,justifyContent:"space-between"}}>${AVAL.map(function(e){return html`<button key=${e} className="emoji-aval" onClick=${function(){concluir(m,e);}}>${e}</button>`;})}</div></div>`
           :html`<div style=${{marginTop:11}}>
             ${feito?html`<button className="btn btn-ghost" style=${{width:"100%",color:COR.pais,borderColor:COR.pais}} onClick=${function(){desfazer(m);}}>✓ ${sem?"Feita esta semana":"Feito hoje"} · desfazer</button>`
               :html`<button className="btn btn-primary" style=${{width:"100%"}} onClick=${function(){setAvaliando(m.id);}}>Concluir ${sem?"agora":"hoje"}</button>`}
-          </div>`}
+          </div>`)}
       </div>
     </div>`;
   }
@@ -312,15 +331,23 @@ function Missoes(props){
 
       ${filhas.length>0?html`<div style=${{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filhaAtiva?" on":"")} onClick=${function(){setFilhaAtiva(f);}}>${f}</button>`;})}</div>`:null}
 
-      ${c?html`<div className="card" style=${{padding:16,marginTop:14,display:"flex",gap:14,alignItems:"center"}}>
-        <${Pote} frac=${Math.min(c.totalPct/1.2,1)} destravado=${c.destr}/>
-        <div style=${{flex:1}}>
-          <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:30,lineHeight:1}}>${Math.round(Math.min(c.totalPct,1.2)*100)}<span style=${{fontSize:16}}>%</span></div>
-          <div className="note" style=${{marginTop:3}}>da semana${c.ef>0?(" · +"+Math.round((c.ef/(c.ct||1))*100)+"% bônus"):""}</div>
-          ${diarias.length>0?html`<div className="note" style=${{marginTop:2}}>Hoje: ${hojeFeitas}/${diarias.length} missões do dia</div>`:null}
-          <div style=${{marginTop:10,padding:"8px 11px",borderRadius:12,background:c.destr?COR.meninasBg:"#F0EBE3",fontSize:13,fontWeight:600,color:c.destr?COR.meninas:"#857A8C"}}>
-            ${c.mesada===null?"Defina o valor da semanada":c.destr?("🔓 Semanada: "+fmtR(c.mesada)):("🔒 Faltam "+Math.max(0,Math.ceil((0.8-c.basePct)*100))+"% pra liberar")}
+      ${c?html`<div className="card" style=${{padding:16,marginTop:14}}>
+        <div style=${{display:"flex",gap:6,alignItems:"flex-start"}}>
+          <div style=${{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}}>
+            <${Pote} frac=${Math.min(cd.totalPct/1.2,1)} destravado=${cd.destr} w=${80}/>
+            <div className="eyebrow" style=${{marginTop:4}}>Hoje</div>
+            <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:22,lineHeight:1}}>${Math.round(Math.min(cd.totalPct,1.2)*100)}%</div>
           </div>
+          <div style=${{width:1,alignSelf:"stretch",background:"#ECE3D8",margin:"4px 2px"}}></div>
+          <div style=${{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}}>
+            <${Pote} frac=${Math.min(c.totalPct/1.2,1)} destravado=${c.destr} w=${80}/>
+            <div className="eyebrow" style=${{marginTop:4}}>Semana</div>
+            <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:22,lineHeight:1}}>${Math.round(Math.min(c.totalPct,1.2)*100)}%</div>
+          </div>
+        </div>
+        <div className="note" style=${{textAlign:"center",marginTop:10}}>Hoje: ${hojeFeitas}/${diariasHoje.length} missões do dia${c.ef>0?(" · +"+Math.round((c.ef/(c.ct||1))*100)+"% bônus"):""}</div>
+        <div style=${{marginTop:10,padding:"9px 12px",borderRadius:12,textAlign:"center",background:c.destr?COR.meninasBg:"#F0EBE3",fontSize:13,fontWeight:600,color:c.destr?COR.meninas:"#857A8C"}}>
+          ${c.mesada===null?"Defina o valor da semanada":c.destr?("🔓 Semanada liberada: "+fmtR(c.mesada)):("🔒 Faltam "+Math.max(0,Math.ceil((0.8-c.basePct)*100))+"% da semana pra liberar")}
         </div>
       </div>`:null}
 
@@ -334,14 +361,21 @@ function Missoes(props){
       </div>`:null}
 
       ${(pai&&abrir)?html`<div className="card" style=${{padding:16,marginTop:12,display:"flex",flexDirection:"column",gap:12}}>
-        <div><span className="label">Missão</span><input className="input" value=${n.titulo} onChange=${function(e){setF("titulo",e.target.value);}} placeholder="Ex: Arrumar a cama"/></div>
         <div><span className="label">Categoria</span><div style=${{display:"flex",gap:8}}>${CATEGORIAS.map(function(cat){var inf=catInfo(cat);var on=(n.categoria===cat);return html`<button key=${cat} type="button" className="fchip" style=${on?{background:inf.cor,color:"#fff",borderColor:inf.cor,flex:1}:{flex:1}} onClick=${function(){trocaCat(cat);}}>${inf.emoji} ${cat}</button>`;})}</div></div>
+        <div><span className="label">Missão</span>
+          <select className="input" value="" onChange=${function(e){if(e.target.value)setF("titulo",e.target.value);e.target.value="";}} style=${{marginBottom:8}}>
+            <option value="">— Escolher sugestão de ${n.categoria} —</option>
+            ${(SUGESTOES[n.categoria]||[]).map(function(s){return html`<option key=${s} value=${s}>${s}</option>`;})}
+          </select>
+          <input className="input" value=${n.titulo} onChange=${function(e){setF("titulo",e.target.value);}} placeholder="ou escreva a missão"/>
+        </div>
         <div><span className="label">Frequência</span><div style=${{display:"flex",gap:8}}>${[["diaria","Diária"],["semanal","Semanal"]].map(function(f){var on=(n.frequencia===f[0]);return html`<button key=${f[0]} type="button" className=${"fchip"+(on?" on":"")} style=${{flex:1}} onClick=${function(){setF("frequencia",f[0]);}}>${f[1]}</button>`;})}</div></div>
+        ${n.frequencia==="diaria"?html`<div><span className="label">Dias da semana</span><div style=${{display:"flex",gap:5,flexWrap:"wrap"}}>${[1,2,3,4,5,6,0].map(function(d){var on=(n.dias.indexOf(d)>=0);return html`<button key=${d} type="button" className=${"fchip"+(on?" on":"")} style=${{padding:"7px 0",minWidth:44,textAlign:"center"}} onClick=${function(){toggleDia(d);}}>${DIAS_ABREV[d]}</button>`;})}</div></div>`:null}
+        <div><span className="label">Recorrência</span><div style=${{display:"flex",gap:8}}>${[[true,"🔁 Toda semana"],[false,"1× Só esta semana"]].map(function(f){var on=(n.recorrente===f[0]);return html`<button key=${String(f[0])} type="button" className=${"fchip"+(on?" on":"")} style=${{flex:1}} onClick=${function(){setF("recorrente",f[0]);}}>${f[1]}</button>`;})}</div></div>
         <div style=${{display:"flex",gap:11}}>
           <div style=${{flex:1}}><span className="label">Responsável (nome)</span><input className="input" value=${n.responsavel} onChange=${function(e){setF("responsavel",e.target.value);}} placeholder="Ex: Larissa"/></div>
           <div style=${{width:84}}><span className="label">Pontos</span><input className="input" type="number" value=${n.pontos} onChange=${function(e){setF("pontos",e.target.value);}}/></div>
         </div>
-        <div className="note">Diária conta até 7 vezes na semana · semanal conta 1 vez. Essencial 1 pt · Crescimento 2 · Extra 4 (bônus).</div>
         <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${add}>Criar missão</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);}}>Cancelar</button></div>
       </div>`:null}
 
