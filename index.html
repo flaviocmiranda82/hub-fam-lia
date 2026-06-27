@@ -262,7 +262,7 @@ function Missoes(props){
   const carregar=async function(){const a=await sb.from("missoes_modelo").select("*").eq("ativa",true).or("recorrente.eq.true,semana.eq."+semana).order("criado_em");setModelos(a.data||[]);const b=await sb.from("checkins").select("*").eq("semana",semana);setChecks(b.data||[]);};
   const carregarMeta=async function(){const r=await sb.from("metas").select("*").eq("semana",semana).maybeSingle();if(r.data){setMeta(r.data);setValorForm(r.data.valor);}else{setMeta(null);}};
   useEffect(function(){carregar();carregarMeta();const ch=sb.channel("f2").on("postgres_changes",{event:"*",schema:"public",table:"missoes_modelo"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"checkins"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
-  useEffect(function(){ if(modelos.length){ const fs=[]; modelos.forEach(function(m){ if(m.responsavel&&fs.indexOf(m.responsavel)<0)fs.push(m.responsavel); }); if(fs.length&&fs.indexOf(filhaAtiva)<0)setFilhaAtiva(fs[0]); } },[modelos]);
+  useEffect(function(){ if(!pai&&props.nome){ if(filhaAtiva!==props.nome)setFilhaAtiva(props.nome); return; } if(modelos.length){ const fs=[]; modelos.forEach(function(m){ if(m.responsavel&&fs.indexOf(m.responsavel)<0)fs.push(m.responsavel); }); if(fs.length&&fs.indexOf(filhaAtiva)<0)setFilhaAtiva(fs[0]); } },[modelos,props.nome]);
 
   const setF=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
   const trocaCat=function(cat){setN(function(p){return Object.assign({},p,{categoria:cat,pontos:catInfo(cat).pts});});};
@@ -329,7 +329,7 @@ function Missoes(props){
       <div className="h1">Jornada da semana</div>
       <div className="jornada"><div className="label" style=${{margin:0}}>Hoje</div><div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:18,marginTop:2}}>${temaHoje}</div></div>
 
-      ${filhas.length>0?html`<div style=${{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filhaAtiva?" on":"")} onClick=${function(){setFilhaAtiva(f);}}>${f}</button>`;})}</div>`:null}
+      ${(pai&&filhas.length>0)?html`<div style=${{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filhaAtiva?" on":"")} onClick=${function(){setFilhaAtiva(f);}}>${f}</button>`;})}</div>`:null}
 
       ${c?html`<div className="card" style=${{padding:16,marginTop:14}}>
         <div style=${{display:"flex",gap:6,alignItems:"flex-start"}}>
@@ -390,22 +390,28 @@ function Missoes(props){
 }
 function Inicio(props){
   const nome=props.nome;
-  const [futuros,setFuturos]=useState(null),[abertas,setAbertas]=useState(null),[pct,setPct]=useState(null),[temMeta,setTemMeta]=useState(false);
+  const pai=(props.papel==="pai"||props.papel==="mae");
+  const [futuros,setFuturos]=useState(null),[hojeFeito,setHojeFeito]=useState(null),[hojeTotal,setHojeTotal]=useState(null);
   useEffect(function(){
-    const hoje=new Date().toISOString().slice(0,10);
-    sb.from("eventos").select("data").then(function(r){if(r.data)setFuturos(r.data.filter(function(e){return (e.data||"")>=hoje;}).length);});
-    const semana=semanaAtual();
-    sb.from("missoes").select("pontos,status").eq("semana",semana).then(function(r){
-      if(!r.data)return;
-      setAbertas(r.data.filter(function(m){return m.status==="aberta";}).length);
-      const ap=r.data.filter(function(m){return m.status==="aprovada";}).reduce(function(s,m){return s+(m.pontos||0);},0);
-      sb.from("metas").select("meta_pontos").eq("semana",semana).maybeSingle().then(function(rm){
-        if(rm.data&&rm.data.meta_pontos){setTemMeta(true);setPct(Math.round(ap/rm.data.meta_pontos*100));}
+    const hojeISO=new Date().toISOString().slice(0,10);
+    sb.from("eventos").select("data").then(function(r){if(r.data)setFuturos(r.data.filter(function(e){return (e.data||"")>=hojeISO;}).length);});
+    const semana=semanaAtual(), hd=hojeLocal(), ds=new Date().getDay();
+    sb.from("missoes_modelo").select("*").eq("ativa",true).or("recorrente.eq.true,semana.eq."+semana).then(function(rm){
+      var mods=(rm.data||[]).filter(function(m){
+        if(m.frequencia==="semanal")return false;
+        if(!pai && nome && m.responsavel!==nome)return false;
+        var dd=m.dias?String(m.dias).split(",").map(Number):[0,1,2,3,4,5,6];
+        return dd.indexOf(ds)>=0;
+      });
+      setHojeTotal(mods.length);
+      sb.from("checkins").select("modelo_id,dia").eq("dia",hd).then(function(rc){
+        var ids={}; (rc.data||[]).forEach(function(cc){ids[cc.modelo_id]=1;});
+        setHojeFeito(mods.filter(function(m){return ids[m.id];}).length);
       });
     });
   },[]);
   const ag=futuros===null?"…":(futuros>0?(futuros+(futuros===1?" evento próximo":" eventos próximos")):"Nada marcado ainda");
-  const ms=abertas===null?"…":(temMeta&&pct!==null?("Meta "+pct+"% · "+abertas+(abertas===1?" aberta":" abertas")):(abertas>0?(abertas+(abertas===1?" missão aberta":" missões abertas")):"Tudo em dia"));
+  const ms=hojeTotal===null?"…":(hojeTotal===0?"Sem missões hoje":(hojeFeito>=hojeTotal?"Tudo feito hoje! 🎉":hojeFeito+"/"+hojeTotal+" missões hoje"));
   const dias=["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
   const meses=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
   const dt=new Date(),h=dt.getHours();
@@ -469,7 +475,7 @@ function App(){
         <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
-      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:html`<${Missoes} papel=${papel} toast=${toast}/>`}
+      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
       <div className="tabs">
         <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
