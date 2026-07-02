@@ -89,6 +89,7 @@ const fCurta=(iso)=>{const d=pData(iso);return d?DIAS[d.getDay()].slice(0,3)+", 
 const fLonga=(iso)=>{const d=pData(iso);return d?DIAS[d.getDay()]+", "+d.getDate()+" de "+MESES_L[d.getMonth()]:"—";};
 const dAte=(iso)=>{const d=pData(iso);if(!d)return null;const h=new Date();h.setHours(0,0,0,0);return Math.round((d-h)/864e5);};
 const falta=(iso)=>{const n=dAte(iso);if(n===null)return"";if(n<0)return"já passou";if(n===0)return"é hoje";if(n===1)return"é amanhã";return"faltam "+n+" dias";};
+const corFalta=(iso)=>{const n=dAte(iso);if(n===null||n<0)return{bg:"#F0EBE3",fg:"#857A8C"};if(n<=2)return{bg:"#E6F4EA",fg:"#2F9E44"};if(n<=9)return{bg:"#FBF3DC",fg:"#C99A2E"};return{bg:"#E3EEF9",fg:"#2B6CB0"};};
 function semanaAtual(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+3-((d.getDay()+6)%7));const s=new Date(d.getFullYear(),0,4);const n=1+Math.round(((d-s)/864e5-3+((s.getDay()+6)%7))/7);return d.getFullYear()+"-W"+String(n).padStart(2,"0");}
 
 async function desenhar(ev){
@@ -162,10 +163,11 @@ function baixarICS(ev){
 function Agenda(props){
   const toast=props.toast;
   const vazio={titulo:"",data:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:""};
-  const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio),[lendo,setLendo]=useState(false);
-  const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});setEventos(r.data||[]);};
+  const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio),[lendo,setLendo]=useState(false),[editId,setEditId]=useState(null);
+  const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});var evs=(r.data||[]).slice().sort(function(a,b){var da=(a.data||"")+" "+(a.inicio||"99:99");var db=(b.data||"")+" "+(b.inicio||"99:99");return da<db?-1:da>db?1:0;});setEventos(evs);};
   useEffect(function(){carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
-  async function salvar(){ if(!n.titulo.trim()){toast("Dê um nome ao evento.");return;} const r=await sb.from("eventos").insert(n); if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);carregar();} }
+  async function salvar(){ if(!n.titulo.trim()){toast("Dê um nome ao evento.");return;} const r=editId?await sb.from("eventos").update(n).eq("id",editId):await sb.from("eventos").insert(n); if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);setEditId(null);carregar();} }
+  function editar(ev){ setN({titulo:ev.titulo||"",data:ev.data||"",inicio:ev.inicio||"",fim:ev.fim||"",local:ev.local||"",convidado:ev.convidado||"",festa_infantil:!!ev.festa_infantil,responsavel:ev.responsavel||""}); setEditId(ev.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   async function apagar(id){ await sb.from("eventos").delete().eq("id",id); carregar(); }
   const up=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
   async function prepararImagem(file){const bmp=await createImageBitmap(file);const max=1568;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.85);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
@@ -196,7 +198,7 @@ function Agenda(props){
               </div>
             </div>
             ${n.festa_infantil?html`<div><span className="label">Quem leva / busca</span><input className="input" value=${n.responsavel} onChange=${function(e){up("responsavel",e.target.value);}}/></div>`:null}
-            <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvar}>Guardar</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);}}>Cancelar</button></div>
+            <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvar}>${editId?"Salvar alterações":"Guardar"}</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);setEditId(null);setN(vazio);}}>Cancelar</button></div>
           </div>`}
       <div className="eyebrow" style=${{margin:"22px 2px 12px"}}>Próximos</div>
       ${eventos.length===0
@@ -205,12 +207,13 @@ function Agenda(props){
             <div className="card" key=${ev.id} style=${{display:"flex",overflow:"hidden",padding:0}}>
               <div style=${{width:8,background:cor}}></div>
               <div style=${{padding:"14px 14px 14px 16px",flex:1,minWidth:0}}>
-                <div style=${{display:"flex",justifyContent:"space-between",gap:8}}><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17}}>${ev.titulo}</div><span className="chip" style=${{background:corBg,color:cor}}>${falta(ev.data)}</span></div>
+                <div style=${{display:"flex",justifyContent:"space-between",gap:8}}><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17}}>${ev.titulo}</div><span className="chip" style=${{background:corFalta(ev.data).bg,color:corFalta(ev.data).fg}}>${falta(ev.data)}</span></div>
                 <div style=${{color:"#857A8C",fontSize:13.5,margin:"6px 0 2px"}}>${fCurta(ev.data)}${ev.inicio?" · "+ev.inicio+(ev.fim?"–"+ev.fim:""):""}${ev.local?" · "+ev.local:""}</div>
                 ${ev.responsavel?html`<div style=${{fontSize:13}}><b>Quem leva:</b> ${ev.responsavel}</div>`:null}
                 <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:11}}>
                   <div style=${{display:"flex",gap:8}}>
                     <button className="btn btn-primary" style=${{flex:1,padding:10}} onClick=${function(){compartilhar(ev,toast);}}>Compartilhar lembrete</button>
+                    <button className="btn btn-ghost" style=${{padding:"10px 12px"}} onClick=${function(){editar(ev);}}>✏️</button>
                     <button className="btn btn-ghost" style=${{padding:"10px 12px"}} onClick=${function(){apagar(ev.id);}}>Apagar</button>
                   </div>
                   <button className="btn btn-ghost" style=${{padding:10}} onClick=${function(){baixarICS(ev);}}>📅 Adicionar à agenda</button>
