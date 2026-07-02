@@ -163,7 +163,7 @@ function Agenda(props){
   const toast=props.toast;
   const vazio={titulo:"",data:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:""};
   const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio),[lendo,setLendo]=useState(false);
-  const carregar=async function(){const r=await sb.from("eventos").select("*").order("data");setEventos(r.data||[]);};
+  const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});setEventos(r.data||[]);};
   useEffect(function(){carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
   async function salvar(){ if(!n.titulo.trim()){toast("Dê um nome ao evento.");return;} const r=await sb.from("eventos").insert(n); if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);carregar();} }
   async function apagar(id){ await sb.from("eventos").delete().eq("id",id); carregar(); }
