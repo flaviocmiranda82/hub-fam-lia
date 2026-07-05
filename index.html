@@ -511,7 +511,154 @@ function Inicio(props){
             <div className="pt-dado">${ms}</div>
           </div>
         </button>
+        ${props.albumAtivo?html`<button className="capa-portal anim" style=${{animationDelay:".24s",background:"linear-gradient(150deg,#C99A2E,#a87e1f)"}} onClick=${function(){props.ir("album");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">⚽</div>
+            <div className="pt-tit">Álbum da Copa</div>
+            <div className="pt-desc">Figurinhas: tenho, faltam, repetidas</div>
+          </div>
+        </button>`:null}
       </div>
+    </div>`;
+}
+
+const SELECOES=[
+{c:"FWC",n:"FWC — Specials",b:"⭐"},
+{c:"MEX",n:"Mexico",b:"🇲🇽"},{c:"RSA",n:"South Africa",b:"🇿🇦"},{c:"KOR",n:"South Korea",b:"🇰🇷"},{c:"CZE",n:"Czechia",b:"🇨🇿"},
+{c:"CAN",n:"Canada",b:"🇨🇦"},{c:"BIH",n:"Bosnia and Herzegovina",b:"🇧🇦"},{c:"QAT",n:"Qatar",b:"🇶🇦"},{c:"SUI",n:"Switzerland",b:"🇨🇭"},
+{c:"BRA",n:"Brazil",b:"🇧🇷"},{c:"MAR",n:"Morocco",b:"🇲🇦"},{c:"HAI",n:"Haiti",b:"🇭🇹"},{c:"SCO",n:"Scotland",b:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
+{c:"USA",n:"USA",b:"🇺🇸"},{c:"PAR",n:"Paraguay",b:"🇵🇾"},{c:"AUS",n:"Australia",b:"🇦🇺"},{c:"TUR",n:"Türkiye",b:"🇹🇷"},
+{c:"GER",n:"Germany",b:"🇩🇪"},{c:"CUW",n:"Curaçao",b:"🇨🇼"},{c:"CIV",n:"Ivory Coast",b:"🇨🇮"},{c:"ECU",n:"Ecuador",b:"🇪🇨"},
+{c:"NED",n:"Netherlands",b:"🇳🇱"},{c:"JPN",n:"Japan",b:"🇯🇵"},{c:"SWE",n:"Sweden",b:"🇸🇪"},{c:"TUN",n:"Tunisia",b:"🇹🇳"},
+{c:"BEL",n:"Belgium",b:"🇧🇪"},{c:"EGY",n:"Egypt",b:"🇪🇬"},{c:"IRN",n:"Iran",b:"🇮🇷"},{c:"NZL",n:"New Zealand",b:"🇳🇿"},
+{c:"ESP",n:"Spain",b:"🇪🇸"},{c:"CPV",n:"Cape Verde",b:"🇨🇻"},{c:"KSA",n:"Saudi Arabia",b:"🇸🇦"},{c:"URU",n:"Uruguay",b:"🇺🇾"},
+{c:"FRA",n:"France",b:"🇫🇷"},{c:"SEN",n:"Senegal",b:"🇸🇳"},{c:"IRQ",n:"Iraq",b:"🇮🇶"},{c:"NOR",n:"Norway",b:"🇳🇴"},
+{c:"ARG",n:"Argentina",b:"🇦🇷"},{c:"ALG",n:"Algeria",b:"🇩🇿"},{c:"AUT",n:"Austria",b:"🇦🇹"},{c:"JOR",n:"Jordan",b:"🇯🇴"},
+{c:"POR",n:"Portugal",b:"🇵🇹"},{c:"COD",n:"Congo DR",b:"🇨🇩"},{c:"UZB",n:"Uzbekistan",b:"🇺🇿"},{c:"COL",n:"Colombia",b:"🇨🇴"},
+{c:"ENG",n:"England",b:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},{c:"CRO",n:"Croatia",b:"🇭🇷"},{c:"GHA",n:"Ghana",b:"🇬🇭"},{c:"PAN",n:"Panama",b:"🇵🇦"}
+];
+
+function Album(props){
+  const toast=props.toast, pai=(props.papel==="pai"||props.papel==="mae");
+  const [st,setSt]=useState({});
+  const [tela,setTela]=useState("times");
+  const [modo,setModo]=useState("mais");
+  const [lendo,setLendo]=useState(false),[scan,setScan]=useState(null);
+  const [verFalt,setVerFalt]=useState(false),[verRep,setVerRep]=useState(false);
+  const carregar=async function(){const r=await sb.from("album_status").select("*");var m={};(r.data||[]).forEach(function(x){m[x.codigo]=x.qtd;});setSt(m);};
+  useEffect(function(){carregar();const ch=sb.channel("alb").on("postgres_changes",{event:"*",schema:"public",table:"album_status"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
+
+  const codesDe=function(t){ if(t.c==="FWC"){var a=["00"];for(var i=1;i<=19;i++)a.push("FWC"+i);return a;} var b=[];for(var j=1;j<=20;j++)b.push(t.c+j);return b;};
+  const rotulo=function(t,cod){ if(t.c==="FWC")return cod==="00"?"00":cod.replace("FWC","F");return cod.replace(t.c,"");};
+  const qtdDe=function(c){return st[c]||0;};
+  const setQtd=async function(c,q){ var m=Object.assign({},st);m[c]=q;setSt(m); var r=await sb.from("album_status").upsert({codigo:c,qtd:q}); if(r.error){toast(r.error.message);carregar();} };
+  const tap=function(c){ var q=qtdDe(c); if(modo==="menos"){ if(q>0)setQtd(c,q-1); } else setQtd(c,q+1); };
+  const prog=function(t){ var cs=codesDe(t),tem=0; cs.forEach(function(c){if(qtdDe(c)>=1)tem++;}); return {tem:tem,tot:cs.length}; };
+
+  var totTem=0,totTot=0,totRep=0;
+  SELECOES.forEach(function(t){ codesDe(t).forEach(function(c){ totTot++; var q=qtdDe(c); if(q>=1)totTem++; if(q>1)totRep+=q-1; }); });
+  const listaFalt=function(){ var ls=[]; SELECOES.forEach(function(t){ var arr=codesDe(t).filter(function(c){return qtdDe(c)===0;}); if(arr.length)ls.push({t:t,arr:arr}); }); return ls; };
+  const listaRep=function(){ var ls=[]; SELECOES.forEach(function(t){ var arr=codesDe(t).filter(function(c){return qtdDe(c)>1;}).map(function(c){return c+" ×"+(qtdDe(c)-1);}); if(arr.length)ls.push({t:t,arr:arr}); }); return ls; };
+  async function exportar(){
+    var f=listaFalt(),r=listaRep();
+    var txt="⚽ Álbum Copa 2026 — Família Fonseca\n\n❌ FALTAM ("+(totTot-totTem)+"):\n"+(f.length?f.map(function(x){return x.t.b+" "+x.t.n+": "+x.arr.join(", ");}).join("\n"):"nenhuma!")+"\n\n🔁 REPETIDAS ("+totRep+"):\n"+(r.length?r.map(function(x){return x.t.b+" "+x.t.n+": "+x.arr.join(", ");}).join("\n"):"nenhuma");
+    try{ if(navigator.share){await navigator.share({text:txt});return;} throw 0; }
+    catch(e){ if(e&&e.name==="AbortError")return; try{await navigator.clipboard.writeText(txt);toast("Lista copiada! Cole no WhatsApp.");}catch(_){toast("Não consegui copiar.");} }
+  }
+
+  async function prepImg(file){const bmp=await createImageBitmap(file);const max=1568;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.85);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
+  async function escanear(e){
+    const file=e.target.files&&e.target.files[0]; if(!file)return;
+    const t=SELECOES.find(function(x){return x.c===tela;}); if(!t)return;
+    setLendo(true);
+    try{
+      const img=await prepImg(file);
+      const r=await sb.functions.invoke("ler-album",{body:{imagem:img.base64,mediaType:img.mediaType,time:t.c,nome:t.n}});
+      if(r.error)throw r.error;
+      const d=r.data||{}; const validos=codesDe(t);
+      const filtra=function(a){return (a||[]).map(function(x){return String(x).replace(/\s/g,"").toUpperCase();}).filter(function(x){return validos.indexOf(x)>=0;});};
+      setScan({completas:filtra(d.completas),faltantes:filtra(d.faltantes)});
+    }catch(err){toast("Não consegui ler a página. Tente foto mais de perto, com boa luz.");}
+    finally{setLendo(false);e.target.value="";}
+  }
+  async function aplicarScan(){
+    if(!scan)return; var rows=[];
+    scan.completas.forEach(function(c){rows.push({codigo:c,qtd:Math.max(1,qtdDe(c))});});
+    scan.faltantes.forEach(function(c){rows.push({codigo:c,qtd:0});});
+    if(rows.length){var r=await sb.from("album_status").upsert(rows); if(r.error){toast(r.error.message);return;}}
+    setScan(null); carregar(); toast("Página aplicada! ✅");
+  }
+
+  const t=SELECOES.find(function(x){return x.c===tela;});
+
+  return html`
+    <div className="wrap">
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+        <div><div className="eyebrow">⚽ Copa 2026</div><div className="h1">Álbum de figurinhas</div></div>
+        ${(pai&&tela==="times")?html`<button className="btn btn-ghost" style=${{padding:"6px 10px",fontSize:12,flexShrink:0}} onClick=${function(){props.toggleAlbum(false);}}>Desativar aba</button>`:null}
+      </div>
+
+      <div style=${{display:"flex",gap:8,marginTop:12}}>
+        <button className=${"fchip"+(tela==="times"||t?" on":"")} style=${{flex:1}} onClick=${function(){setTela("times");setScan(null);}}>📖 Times</button>
+        <button className=${"fchip"+(tela==="resumo"?" on":"")} style=${{flex:1}} onClick=${function(){setTela("resumo");setScan(null);}}>📊 Resumo</button>
+      </div>
+
+      <div className="card" style=${{padding:"12px 14px",marginTop:12}}>
+        <div style=${{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:700}}><span>${totTem} / ${totTot}</span><span className="note">faltam ${totTot-totTem} · 🔁 ${totRep}</span></div>
+        <div style=${{height:9,background:"#F0EBE3",borderRadius:6,overflow:"hidden",marginTop:6}}><div style=${{width:(totTot?Math.round(totTem/totTot*100):0)+"%",height:"100%",background:COR.pais,borderRadius:6}}></div></div>
+      </div>
+
+      ${tela==="resumo"?html`<div>
+        <div style=${{display:"flex",gap:8,marginTop:12}}>
+          ${[["✅",totTem,"tenho",COR.pais],["❌",totTot-totTem,"faltam","#C64B33"],["🔁",totRep,"repetidas","#C99A2E"]].map(function(x){return html`<div key=${x[2]} className="card" style=${{flex:1,padding:"12px 8px",textAlign:"center"}}><div style=${{fontSize:16}}>${x[0]}</div><div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:22,color:x[3]}}>${x[1]}</div><div className="note" style=${{fontSize:11}}>${x[2]}</div></div>`;})}
+        </div>
+        <button className="btn btn-primary" style=${{width:"100%",marginTop:12}} onClick=${exportar}>📤 Enviar lista no WhatsApp</button>
+        <div className="card" style=${{padding:14,marginTop:12}}>
+          <button className="btn btn-ghost" style=${{width:"100%"}} onClick=${function(){setVerFalt(!verFalt);}}>❌ Ver faltantes (${totTot-totTem})</button>
+          ${verFalt?html`<div style=${{marginTop:10,display:"flex",flexDirection:"column",gap:8}}>${listaFalt().map(function(x){return html`<div key=${x.t.c}><div style=${{fontSize:12.5,fontWeight:700}}>${x.t.b} ${x.t.n} (${x.arr.length})</div><div className="note" style=${{fontSize:11.5,lineHeight:1.6}}>${x.arr.join(", ")}</div></div>`;})}</div>`:null}
+        </div>
+        <div className="card" style=${{padding:14,marginTop:10}}>
+          <button className="btn btn-ghost" style=${{width:"100%"}} onClick=${function(){setVerRep(!verRep);}}>🔁 Ver repetidas (${totRep})</button>
+          ${verRep?html`<div style=${{marginTop:10,display:"flex",flexDirection:"column",gap:8}}>${listaRep().map(function(x){return html`<div key=${x.t.c}><div style=${{fontSize:12.5,fontWeight:700}}>${x.t.b} ${x.t.n}</div><div className="note" style=${{fontSize:11.5,lineHeight:1.6}}>${x.arr.join(", ")}</div></div>`;})}</div>`:null}
+        </div>
+      </div>`
+      :t?html`<div>
+        <button className="btn btn-ghost" style=${{marginTop:12,padding:"8px 12px",fontSize:13}} onClick=${function(){setTela("times");setScan(null);}}>← Todos os times</button>
+        <div style=${{display:"flex",alignItems:"center",gap:10,marginTop:12}}>
+          <span style=${{fontSize:30}}>${t.b}</span>
+          <div><div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:20}}>${t.n}</div><div className="note">${prog(t).tem}/${prog(t).tot} figurinhas</div></div>
+        </div>
+        <div style=${{display:"flex",gap:8,marginTop:12}}>
+          <button className=${"fchip"+(modo==="mais"?" on":"")} style=${{flex:1}} onClick=${function(){setModo("mais");}}>➕ Marcar</button>
+          <button className=${"fchip"+(modo==="menos"?" on":"")} style=${{flex:1}} onClick=${function(){setModo("menos");}}>➖ Corrigir</button>
+        </div>
+        <div style=${{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:7,marginTop:12}}>
+          ${codesDe(t).map(function(c){var q=qtdDe(c);var tem=q>=1;return html`<button key=${c} onClick=${function(){tap(c);}} style=${{position:"relative",padding:"13px 0",borderRadius:11,border:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontWeight:700,fontSize:13,background:tem?"#DFF2E5":"#FADBD5",color:tem?"#2F9E44":"#C64B33"}}>
+            ${rotulo(t,c)}
+            ${q>1?html`<span style=${{position:"absolute",top:-5,right:-4,minWidth:17,height:17,lineHeight:"17px",borderRadius:9,background:"#C99A2E",color:"#fff",fontSize:10,fontWeight:800,padding:"0 3px"}}>${q-1}</span>`:null}
+          </button>`;})}
+        </div>
+        <div className="note" style=${{marginTop:10,fontSize:11.5}}>Toque: vermelha → verde → repetida (1, 2…). Use ➖ Corrigir pra voltar.</div>
+        ${scan?html`<div className="card" style=${{padding:14,marginTop:12,border:"2px solid "+COR.pais}}>
+          <div style=${{fontWeight:700,fontSize:14}}>📷 Li a página. Confirma?</div>
+          <div className="note" style=${{marginTop:6,fontSize:12}}>✅ Tenho (${scan.completas.length}): ${scan.completas.join(", ")||"—"}</div>
+          <div className="note" style=${{marginTop:4,fontSize:12}}>❌ Faltam (${scan.faltantes.length}): ${scan.faltantes.join(", ")||"—"}</div>
+          <div style=${{display:"flex",gap:8,marginTop:10}}><button className="btn btn-primary" style=${{flex:1}} onClick=${aplicarScan}>Aplicar</button><button className="btn btn-ghost" onClick=${function(){setScan(null);}}>Cancelar</button></div>
+        </div>`
+        :html`<button className="btn btn-primary" disabled=${lendo} style=${{width:"100%",marginTop:12}} onClick=${function(){document.getElementById("albumFile").click();}}>${lendo?"Lendo página…":"📷 Escanear página do álbum"}</button>`}
+        <input id="albumFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${escanear}/>
+      </div>`
+      :html`<div style=${{display:"flex",flexDirection:"column",gap:7,marginTop:12}}>
+        ${SELECOES.map(function(tt){var p=prog(tt);var full=p.tem===p.tot;return html`<button key=${tt.c} className="card" onClick=${function(){setTela(tt.c);}} style=${{display:"flex",alignItems:"center",gap:11,padding:"11px 13px",border:"none",cursor:"pointer",textAlign:"left"}}>
+          <span style=${{fontSize:23,flexShrink:0}}>${tt.b}</span>
+          <div style=${{flex:1,minWidth:0}}>
+            <div style=${{display:"flex",justifyContent:"space-between",gap:8}}><span style=${{fontWeight:700,fontSize:14,fontFamily:"'Bricolage Grotesque',sans-serif"}}>${tt.n}</span><span className="note" style=${{fontFamily:"'Space Mono',monospace",fontSize:11,flexShrink:0}}>${tt.c} · ${p.tem}/${p.tot}${full?" ✅":""}</span></div>
+            <div style=${{height:6,background:"#F0EBE3",borderRadius:4,overflow:"hidden",marginTop:5}}><div style=${{width:(p.tot?Math.round(p.tem/p.tot*100):0)+"%",height:"100%",background:full?COR.pais:"#C99A2E",borderRadius:4}}></div></div>
+          </div>
+        </button>`;})}
+      </div>`}
     </div>`;
 }
 
@@ -557,6 +704,11 @@ function Painel(props){
     <div className="wrap">
       <div className="eyebrow">Painel · ${semanaAtual()}</div>
       <div className="h1">Como está indo</div>
+
+      ${props.toggleAlbum?html`<div className="card" style=${{padding:"11px 14px",marginTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+        <div style=${{fontSize:13.5,fontWeight:600}}>⚽ Aba Álbum da Copa</div>
+        <button className="btn btn-ghost" style=${{padding:"6px 12px",fontSize:13}} onClick=${function(){props.toggleAlbum(!props.albumAtivo);}}>${props.albumAtivo?"Desativar":"Ativar"}</button>
+      </div>`:null}
 
       ${filhas.length>0?html`<div style=${{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filha?" on":"")} onClick=${function(){setFilha(f);}}>${f}</button>`;})}</div>`:null}
 
@@ -615,27 +767,30 @@ function App(){
   const [nome,setNome]=useState("");
   const [aba,setAba]=useState("inicio");
   const [toastMsg,setToastMsg]=useState("");
+  const [albumAtivo,setAlbumAtivo]=useState(false);
+  const toggleAlbum=async function(v){ const r=await sb.from("config").upsert({chave:"album_ativo",valor:v?"1":"0"}); if(r.error){toast(r.error.message);return;} setAlbumAtivo(v); if(!v)setAba(function(a){return a==="album"?"inicio":a;}); toast(v?"Aba Álbum ativada ⚽":"Aba Álbum desativada"); };
   const toast=function(m){setToastMsg(m);setTimeout(function(){setToastMsg("");},3500);};
   useEffect(function(){
     sb.auth.getSession().then(function(r){setSessao(r.data.session);}).catch(function(){setSessao(null);});
     const sub=sb.auth.onAuthStateChange(function(_e,s){setSessao(s);});
     return function(){ if(sub&&sub.data&&sub.data.subscription) sub.data.subscription.unsubscribe(); };
   },[]);
-  useEffect(function(){ if(sessao){ sb.from("membros").select("papel,nome").eq("id",sessao.user.id).single().then(function(r){if(r.data){setPapel(r.data.papel);setNome(r.data.nome||"");}}); } },[sessao]);
+  useEffect(function(){ if(sessao){ sb.from("membros").select("papel,nome").eq("id",sessao.user.id).single().then(function(r){if(r.data){setPapel(r.data.papel);setNome(r.data.nome||"");}}); sb.from("config").select("valor").eq("chave","album_ativo").maybeSingle().then(function(r){setAlbumAtivo(!!(r.data&&r.data.valor==="1"));}).catch(function(){}); } },[sessao]);
   if(sessao===undefined) return html`<div className="wrap" style=${{paddingTop:80,textAlign:"center",color:"#857A8C"}}>Carregando…</div>`;
   if(!sessao) return html`<div><${Login} toast=${toast}/>${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}</div>`;
-  if(aba==="inicio") return html`<div><${Inicio} papel=${papel} nome=${nome} toast=${toast} ir=${function(a){setAba(a);}} sair=${function(){sb.auth.signOut();}}/>${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}</div>`;
+  if(aba==="inicio") return html`<div><${Inicio} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toast=${toast} ir=${function(a){setAba(a);}} sair=${function(){sb.auth.signOut();}}/>${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}</div>`;
   return html`
     <div>
       <div style=${{maxWidth:560,margin:"0 auto",padding:"14px 18px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
-      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
+      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
       <div className="tabs">
         <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
         <button className=${"tab"+(aba==="missoes"?" on":"")} onClick=${function(){setAba("missoes");}}>✅<br/>Missões</button>
+        ${albumAtivo?html`<button className=${"tab"+(aba==="album"?" on":"")} onClick=${function(){setAba("album");}}>⚽<br/>Álbum</button>`:null}
         ${(papel==="pai"||papel==="mae")?html`<button className=${"tab"+(aba==="painel"?" on":"")} onClick=${function(){setAba("painel");}}>📊<br/>Painel</button>`:null}
       </div>
       ${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}
