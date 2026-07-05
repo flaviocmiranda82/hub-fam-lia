@@ -470,6 +470,100 @@ function Inicio(props){
     </div>`;
 }
 
+function Painel(props){
+  const pai=(props.papel==="pai"||props.papel==="mae");
+  const [mods,setMods]=useState([]),[checks,setChecks]=useState([]),[filha,setFilha]=useState("");
+  useEffect(function(){
+    sb.from("missoes_modelo").select("*").eq("ativa",true).then(function(r){setMods(r.data||[]);});
+    sb.from("checkins").select("*").then(function(r){setChecks(r.data||[]);});
+  },[]);
+  const filhas=[]; mods.forEach(function(m){ if(m.responsavel&&filhas.indexOf(m.responsavel)<0)filhas.push(m.responsavel); });
+  useEffect(function(){ if(filhas.length&&filhas.indexOf(filha)<0)setFilha(filhas[0]); },[mods]);
+  if(!pai) return html`<div className="wrap"><div className="card" style=${{padding:24,textAlign:"center",marginTop:20}}>Painel disponível só para os pais. 😉</div></div>`;
+
+  const dISO=function(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+  const isoSem=function(d){var dt=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));var day=dt.getUTCDay()||7;dt.setUTCDate(dt.getUTCDate()+4-day);var y=dt.getUTCFullYear();var w=Math.ceil((((dt-Date.UTC(y,0,1))/86400000)+1)/7);return y+"-W"+(w<10?"0"+w:w);};
+  const dArr=function(m){ if(!m.dias) return [0,1,2,3,4,5,6]; return String(m.dias).split(",").map(Number); };
+  const MESES=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+
+  const modsF=mods.filter(function(m){return m.responsavel===filha;});
+  const cksF=checks.filter(function(cc){return cc.responsavel===filha;});
+  const porMod={}; cksF.forEach(function(cc){ if(!porMod[cc.modelo_id])porMod[cc.modelo_id]=[]; porMod[cc.modelo_id].push(cc); });
+
+  // 1) Satisfação por missão (todo o histórico)
+  const satis=modsF.map(function(m){ var avals=(porMod[m.id]||[]).filter(function(cc){return cc.avaliacao;}).sort(function(a,b){return (a.dia||"")<(b.dia||"")?-1:1;}).map(function(cc){return cc.avaliacao;}); if(!avals.length)return null; var s=0; avals.forEach(function(e){s+=AVAL_VAL[e]||3;}); return {m:m,avg:s/avals.length,avals:avals}; }).filter(function(x){return x;}).sort(function(a,b){return a.avg-b.avg;});
+
+  // 2) Atingimento diário — últimos 14 dias
+  const dias14=[]; for(var i=13;i>=0;i--){ var d=new Date(); d.setDate(d.getDate()-i); var iso=dISO(d), ds=d.getDay(); var validas=modsF.filter(function(m){return m.frequencia!=="semanal"&&dArr(m).indexOf(ds)>=0;}); var feitas=validas.filter(function(m){return (porMod[m.id]||[]).some(function(cc){return cc.dia===iso;});}).length; dias14.push({d:d,iso:iso,total:validas.length,feitas:feitas,pct:validas.length?feitas/validas.length:null}); }
+
+  // 3) Fechamentos semanais — últimas 6 semanas
+  const sems=[]; for(var j=5;j>=0;j--){ var ref=new Date(); ref.setDate(ref.getDate()-j*7); var sem=isoSem(ref); var seg=new Date(ref); seg.setDate(seg.getDate()-((seg.getDay()+6)%7)); var bP=0,bE=0,xE=0; modsF.forEach(function(m){ var cks=(porMod[m.id]||[]).filter(function(cc){return cc.semana===sem;}); var pts=m.pontos||0; if(m.frequencia==="semanal"){ var e=cks.length?pts:0; if(m.categoria==="Extra")xE+=e; else{bP+=pts;bE+=e;} } else { var len=dArr(m).length; var dd={}; cks.forEach(function(cc){dd[cc.dia]=1;}); var f=Math.min(Object.keys(dd).length,len); if(m.categoria==="Extra")xE+=f*pts; else{bP+=len*pts;bE+=f*pts;} } }); sems.push({sem:sem,seg:seg,pct:bP?Math.min((bE+xE)/bP,1.2):null,temDado:(bE+xE)>0}); }
+  const atual=sems[5],ant=sems[4];
+  const delta=(atual&&ant&&atual.pct!==null&&ant.pct!==null)?Math.round((atual.pct-ant.pct)*100):null;
+
+  // 4) Fechamento mensal (média dos fechamentos semanais por mês da segunda-feira)
+  const porMes={}; sems.forEach(function(s){ if(s.pct===null||!s.temDado)return; var k=s.seg.getFullYear()+"-"+String(s.seg.getMonth()+1).padStart(2,"0"); if(!porMes[k])porMes[k]={soma:0,n:0,mes:s.seg.getMonth(),ano:s.seg.getFullYear()}; porMes[k].soma+=s.pct; porMes[k].n++; });
+  const meses=Object.keys(porMes).sort().map(function(k){var v=porMes[k];return {label:MESES[v.mes]+"/"+String(v.ano).slice(2),pct:v.soma/v.n};});
+
+  const temDados=cksF.length>0;
+  const barCor=function(p){return p>=0.8?COR.pais:p>=0.5?"#C99A2E":COR.meninas;};
+
+  return html`
+    <div className="wrap">
+      <div className="eyebrow">Painel · ${semanaAtual()}</div>
+      <div className="h1">Como está indo</div>
+
+      ${filhas.length>0?html`<div style=${{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filha?" on":"")} onClick=${function(){setFilha(f);}}>${f}</button>`;})}</div>`:null}
+
+      ${!temDados?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>📊</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>Ainda sem dados</div><div className="note" style=${{marginTop:4}}>Os gráficos ganham vida conforme ${filha||"a família"} conclui missões.</div></div>`:html`<div>
+
+      <div className="card" style=${{padding:16,marginTop:14}}>
+        <div className="eyebrow" style=${{marginBottom:2}}>🌡️ Satisfação por missão</div>
+        <div className="note" style=${{marginBottom:12}}>Todo o histórico · da mais difícil pra mais gostosa</div>
+        ${satis.length===0?html`<div className="note">Sem avaliações ainda.</div>`
+          :html`<div style=${{display:"flex",flexDirection:"column",gap:9}}>${satis.map(function(x){return html`<div key=${x.m.id}>
+            <div style=${{display:"flex",justifyContent:"space-between",gap:8,marginBottom:3}}>
+              <span style=${{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${emojiMedia(x.avg)} ${x.m.titulo}</span>
+              <span className="note" style=${{flexShrink:0}}>${(Math.round(x.avg*10)/10).toFixed(1)} · ${x.avals.length}×</span>
+            </div>
+            <div style=${{height:8,background:"#F0EBE3",borderRadius:6,overflow:"hidden"}}><div style=${{width:(x.avg/5*100)+"%",height:"100%",borderRadius:6,background:x.avg>=3.5?COR.pais:x.avg>=2.5?"#C99A2E":COR.meninas}}></div></div>
+          </div>`;})}</div>`}
+      </div>
+
+      <div className="card" style=${{padding:16,marginTop:12}}>
+        <div className="eyebrow" style=${{marginBottom:2}}>📆 Missões do dia · últimos 14 dias</div>
+        <div className="note" style=${{marginBottom:12}}>Quanto do dia foi cumprido</div>
+        <div style=${{display:"flex",alignItems:"flex-end",gap:3,height:92}}>${dias14.map(function(x){var h=x.pct===null?0:Math.max(x.pct*100,4);var hoje=x.iso===hojeLocal();return html`<div key=${x.iso} style=${{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,height:"100%",justifyContent:"flex-end"}}>
+          <div style=${{width:"100%",height:h+"%",borderRadius:4,background:x.pct===null?"#F0EBE3":barCor(x.pct),opacity:hoje?1:0.85,border:hoje?"2px solid #2A2233":"none",boxSizing:"border-box"}}></div>
+          <div style=${{fontSize:8.5,color:"#857A8C",fontFamily:"'Space Mono',monospace"}}>${x.d.getDate()}</div>
+        </div>`;})}</div>
+        <div className="note" style=${{marginTop:8,fontSize:11}}>Barra cheia = 100% do dia · cinza = sem missões no dia</div>
+      </div>
+
+      <div className="card" style=${{padding:16,marginTop:12}}>
+        <div className="eyebrow" style=${{marginBottom:2}}>📊 Fechamentos semanais</div>
+        <div className="note" style=${{marginBottom:12}}>Últimas 6 semanas · base + extras (teto 120%)</div>
+        <div style=${{display:"flex",alignItems:"flex-end",gap:8,height:110}}>${sems.map(function(s,idx){var h=s.pct===null?0:Math.max(s.pct/1.2*100,4);var atualS=idx===5;return html`<div key=${s.sem} style=${{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",justifyContent:"flex-end"}}>
+          <div style=${{fontSize:10,fontWeight:700,color:s.pct===null?"#B9AFC4":"#2A2233"}}>${s.pct===null?"–":Math.round(s.pct*100)+"%"}</div>
+          <div style=${{width:"100%",height:h+"%",borderRadius:6,background:s.pct===null?"#F0EBE3":barCor(s.pct),border:atualS?"2px solid #2A2233":"none",boxSizing:"border-box"}}></div>
+          <div style=${{fontSize:9,color:"#857A8C",fontFamily:"'Space Mono',monospace"}}>${s.sem.split("-")[1]}</div>
+        </div>`;})}</div>
+        ${delta!==null?html`<div style=${{marginTop:12,padding:"9px 12px",borderRadius:12,textAlign:"center",fontSize:13,fontWeight:600,background:delta>=0?COR.paisBg:COR.meninasBg,color:delta>=0?COR.pais:COR.meninas}}>${delta>0?("▲ +"+delta+" pontos vs semana anterior"):delta<0?("▼ "+delta+" pontos vs semana anterior"):"= Igual à semana anterior"}</div>`:null}
+      </div>
+
+      ${meses.length>0?html`<div className="card" style=${{padding:16,marginTop:12}}>
+        <div className="eyebrow" style=${{marginBottom:2}}>🗓️ Fechamento mensal</div>
+        <div className="note" style=${{marginBottom:12}}>Média dos fechamentos semanais de cada mês</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:9}}>${meses.map(function(mm){return html`<div key=${mm.label}>
+          <div style=${{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style=${{fontSize:13,fontWeight:600}}>${mm.label}</span><span className="note">${Math.round(mm.pct*100)}%</span></div>
+          <div style=${{height:8,background:"#F0EBE3",borderRadius:6,overflow:"hidden"}}><div style=${{width:Math.min(mm.pct/1.2*100,100)+"%",height:"100%",borderRadius:6,background:barCor(mm.pct)}}></div></div>
+        </div>`;})}</div>
+      </div>`:null}
+
+      </div>`}
+    </div>`;
+}
+
 function App(){
   const [sessao,setSessao]=useState(undefined);
   const [papel,setPapel]=useState("filha");
@@ -492,11 +586,12 @@ function App(){
         <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
-      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
+      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
       <div className="tabs">
         <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
         <button className=${"tab"+(aba==="missoes"?" on":"")} onClick=${function(){setAba("missoes");}}>✅<br/>Missões</button>
+        ${(papel==="pai"||papel==="mae")?html`<button className=${"tab"+(aba==="painel"?" on":"")} onClick=${function(){setAba("painel");}}>📊<br/>Painel</button>`:null}
       </div>
       ${toastMsg?html`<div className="toast">${toastMsg}</div>`:null}
     </div>`;
