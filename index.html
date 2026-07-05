@@ -111,7 +111,7 @@ async function desenhar(ev){
 }
 async function compartilhar(ev,toast){
   const blob=await desenhar(ev),file=new File([blob],"lembrete.png",{type:"image/png"});
-  const txt="📌 "+ev.titulo+" — "+fCurta(ev.data)+(ev.inicio?" às "+ev.inicio:"")+(ev.local?" • "+ev.local:"")+(ev.responsavel?" • Leva: "+ev.responsavel:"");
+  const txt=(ev.tipo==="viagem"?"✈️ ":"📌 ")+ev.titulo+" — "+fCurta(ev.data)+((ev.tipo==="viagem"&&ev.data_fim)?" a "+fCurta(ev.data_fim):"")+(ev.inicio?" às "+ev.inicio:"")+(ev.local?" • "+ev.local:"")+(ev.responsavel?" • Leva: "+ev.responsavel:"");
   try{ if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],text:txt});return;} throw 0; }
   catch(e){ if(e&&e.name==="AbortError")return; const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download="lembrete.png";a.click();URL.revokeObjectURL(u); try{await navigator.clipboard.writeText(txt);}catch(_){}; toast("Imagem baixada e texto copiado. Abra o WhatsApp e envie."); }
 }
@@ -148,7 +148,8 @@ function baixarICS(ev){
   const stamp=new Date().toISOString().replace(/[-:]/g,"").split(".")[0]+"Z";
   const temHora=!!ev.inicio;
   let dtStart,dtEnd;
-  if(temHora){dtStart="DTSTART:"+icsData(ev.data,ev.inicio);const fim=ev.fim||maisUmaHora(ev.inicio);dtEnd="DTEND:"+icsData(ev.data,fim);}
+  if(ev.tipo==="viagem"&&ev.data_fim){dtStart="DTSTART;VALUE=DATE:"+icsData(ev.data,"");dtEnd="DTEND;VALUE=DATE:"+icsData(proximoDia(ev.data_fim),"");}
+  else if(temHora){dtStart="DTSTART:"+icsData(ev.data,ev.inicio);const fim=ev.fim||maisUmaHora(ev.inicio);dtEnd="DTEND:"+icsData(ev.data,fim);}
   else{dtStart="DTSTART;VALUE=DATE:"+icsData(ev.data,"");dtEnd="DTEND;VALUE=DATE:"+icsData(proximoDia(ev.data),"");}
   const linhas=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Hub da Familia//PT-BR","CALSCALE:GREGORIAN","BEGIN:VEVENT","UID:"+(ev.id||Date.now())+"@hubfamilia","DTSTAMP:"+stamp,dtStart,dtEnd,"SUMMARY:"+escICS(ev.titulo),ev.local?"LOCATION:"+escICS(ev.local):"",ev.convidado?"DESCRIPTION:"+escICS("Aniversariante/convidado: "+ev.convidado):"","END:VEVENT","END:VCALENDAR"].filter(Boolean);
   const ics=linhas.join("\r\n");
@@ -162,16 +163,45 @@ function baixarICS(ev){
 
 function Agenda(props){
   const toast=props.toast;
-  const vazio={titulo:"",data:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:""};
+  const vazio={titulo:"",data:"",data_fim:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:"",tipo:"evento",pai_id:null};
   const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio),[lendo,setLendo]=useState(false),[editId,setEditId]=useState(null);
   const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});var evs=(r.data||[]).slice().sort(function(a,b){var da=(a.data||"")+" "+(a.inicio||"99:99");var db=(b.data||"")+" "+(b.inicio||"99:99");return da<db?-1:da>db?1:0;});setEventos(evs);};
   useEffect(function(){carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
-  async function salvar(){ if(!n.titulo.trim()){toast("Dê um nome ao evento.");return;} const r=editId?await sb.from("eventos").update(n).eq("id",editId):await sb.from("eventos").insert(n); if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);setEditId(null);carregar();} }
-  function editar(ev){ setN({titulo:ev.titulo||"",data:ev.data||"",inicio:ev.inicio||"",fim:ev.fim||"",local:ev.local||"",convidado:ev.convidado||"",festa_infantil:!!ev.festa_infantil,responsavel:ev.responsavel||""}); setEditId(ev.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
+  const ehViagem=function(ev){return ev.tipo==="viagem";};
+  const faltaEv=function(ev){ if(ehViagem(ev)&&ev.data_fim){ var n0=dAte(ev.data),n1=dAte(ev.data_fim); if(n1===null)return falta(ev.data); if(n1<0)return"já passou"; if(n0!==null&&n0<=0)return"em andamento"; } return falta(ev.data); };
+  const corFaltaEv=function(ev){ if(ehViagem(ev)&&ev.data_fim){ var n0=dAte(ev.data),n1=dAte(ev.data_fim); if(n1!==null&&n1<0)return{bg:"#F0EBE3",fg:"#857A8C"}; if(n0!==null&&n1!==null&&n0<=0&&n1>=0)return{bg:"#E6F4EA",fg:"#2F9E44"}; } return corFalta(ev.data); };
+  async function salvar(){
+    if(!n.titulo.trim()){toast("Dê um nome.");return;}
+    if(!n.data){toast("Escolha a data"+(n.tipo==="viagem"?" de início.":"."));return;}
+    if(n.tipo==="viagem"){ if(!n.data_fim){toast("Escolha a data de fim do período.");return;} if(n.data_fim<n.data){toast("O fim não pode ser antes do início.");return;} }
+    var p=Object.assign({},n);
+    if(p.tipo!=="viagem"){p.data_fim=null;} else {p.inicio="";p.fim="";}
+    const r=editId?await sb.from("eventos").update(p).eq("id",editId):await sb.from("eventos").insert(p);
+    if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);setEditId(null);carregar();}
+  }
+  function editar(ev){ setN({titulo:ev.titulo||"",data:ev.data||"",data_fim:ev.data_fim||"",inicio:ev.inicio||"",fim:ev.fim||"",local:ev.local||"",convidado:ev.convidado||"",festa_infantil:!!ev.festa_infantil,responsavel:ev.responsavel||"",tipo:ev.tipo||"evento",pai_id:ev.pai_id||null}); setEditId(ev.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
+  function addFilho(ev){ setN(Object.assign({},vazio,{tipo:"evento",pai_id:ev.id,data:ev.data||"",festa_infantil:!!ev.festa_infantil})); setEditId(null); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   async function apagar(id){ await sb.from("eventos").delete().eq("id",id); carregar(); }
   const up=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
   async function prepararImagem(file){const bmp=await createImageBitmap(file);const max=1568;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.85);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
-  async function lerConvite(e){const file=e.target.files&&e.target.files[0];if(!file)return;setLendo(true);try{const img=await prepararImagem(file);const r=await sb.functions.invoke("ler-convite",{body:{imagem:img.base64,mediaType:img.mediaType}});if(r.error)throw r.error;const d=r.data||{};setN({titulo:d.titulo||"",data:d.data||"",inicio:d.inicio||"",fim:d.fim||"",local:d.local||"",convidado:d.convidado||"",festa_infantil:!!d.festa_infantil,responsavel:""});setAbrir(true);}catch(err){toast("Não consegui ler o convite. Preencha à mão.");setN(vazio);setAbrir(true);}finally{setLendo(false);e.target.value="";}}
+  async function lerConvite(e){const file=e.target.files&&e.target.files[0];if(!file)return;setLendo(true);try{const img=await prepararImagem(file);const r=await sb.functions.invoke("ler-convite",{body:{imagem:img.base64,mediaType:img.mediaType}});if(r.error)throw r.error;const d=r.data||{};setN(Object.assign({},vazio,{titulo:d.titulo||"",data:d.data||"",inicio:d.inicio||"",fim:d.fim||"",local:d.local||"",convidado:d.convidado||"",festa_infantil:!!d.festa_infantil}));setAbrir(true);}catch(err){toast("Não consegui ler o convite. Preencha à mão.");setN(vazio);setAbrir(true);}finally{setLendo(false);e.target.value="";}}
+  const raiz=eventos.filter(function(e){return !e.pai_id;});
+  const filhosDe=function(id){return eventos.filter(function(e){return e.pai_id===id;});};
+  const paiDe=function(id){return eventos.find(function(e){return e.id===id;});};
+  const paiForm=n.pai_id?paiDe(n.pai_id):null;
+
+  function cardFilho(f){
+    return html`<div key=${f.id} style=${{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#FBF6EF",borderRadius:11}}>
+      <span style=${{fontSize:14,flexShrink:0}}>📍</span>
+      <div style=${{flex:1,minWidth:0}}>
+        <div style=${{fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${f.titulo}</div>
+        <div className="note" style=${{fontSize:11.5}}>${fCurta(f.data)}${f.inicio?" · "+f.inicio+(f.fim?"–"+f.fim:""):""}${f.local?" · "+f.local:""}</div>
+      </div>
+      <button className="btn btn-ghost" style=${{padding:"4px 8px",fontSize:12,flexShrink:0}} onClick=${function(){editar(f);}}>✏️</button>
+      <button className="btn btn-ghost" style=${{padding:"4px 8px",fontSize:12,flexShrink:0}} onClick=${function(){apagar(f.id);}}>×</button>
+    </div>`;
+  }
+
   return html`
     <div className="wrap">
       <div className="eyebrow">Agenda</div>
@@ -179,37 +209,53 @@ function Agenda(props){
       ${!abrir
         ? html`<div style=${{marginTop:14,display:"flex",flexDirection:"column",gap:8}}>
             <button className="btn btn-primary" disabled=${lendo} onClick=${function(){document.getElementById("conviteFile").click();}}>${lendo?"Lendo convite…":"📷 Enviar convite (preenche sozinho)"}</button>
-            <button className="btn btn-ghost" onClick=${function(){setN(vazio);setAbrir(true);}}>+ Novo evento (à mão)</button>
+            <button className="btn btn-ghost" onClick=${function(){setN(vazio);setEditId(null);setAbrir(true);}}>+ Novo evento ou viagem</button>
             <input id="conviteFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${lerConvite}/>
           </div>`
         : html`<div className="card" style=${{padding:16,marginTop:14,display:"flex",flexDirection:"column",gap:12}}>
-            <div><span className="label">Evento</span><input className="input" value=${n.titulo} onChange=${function(e){up("titulo",e.target.value);}} placeholder="Ex: Aniversário da Manu"/></div>
-            <div><span className="label">Data</span><input className="input" type="date" value=${n.data} onChange=${function(e){up("data",e.target.value);}}/></div>
-            <div style=${{display:"flex",gap:11}}>
-              <div style=${{flex:1}}><span className="label">Início</span><input className="input" type="time" value=${n.inicio} onChange=${function(e){up("inicio",e.target.value);}}/></div>
-              <div style=${{flex:1}}><span className="label">Fim</span><input className="input" type="time" value=${n.fim} onChange=${function(e){up("fim",e.target.value);}}/></div>
-            </div>
-            <div><span className="label">Local</span><input className="input" value=${n.local} onChange=${function(e){up("local",e.target.value);}}/></div>
-            <div><span className="label">Convidado / aniversariante</span><input className="input" value=${n.convidado} onChange=${function(e){up("convidado",e.target.value);}}/></div>
+            ${paiForm?html`<div style=${{padding:"8px 12px",borderRadius:11,background:COR.paisBg,color:COR.pais,fontSize:13,fontWeight:600}}>📍 Dentro de: ${paiForm.titulo}</div>`
+              :html`<div><span className="label">Tipo</span><div style=${{display:"flex",gap:8}}>
+                <div className="seg" onClick=${function(){up("tipo","evento");}} style=${n.tipo!=="viagem"?{borderColor:COR.pais,background:COR.paisBg,color:COR.pais}:{}}>🎉 Evento</div>
+                <div className="seg" onClick=${function(){up("tipo","viagem");}} style=${n.tipo==="viagem"?{borderColor:"#C99A2E",background:"#FBF3DC",color:"#C99A2E"}:{}}>✈️ Viagem / período</div>
+              </div></div>`}
+            <div><span className="label">${n.tipo==="viagem"?"Nome da viagem / período":"Evento"}</span><input className="input" value=${n.titulo} onChange=${function(e){up("titulo",e.target.value);}} placeholder=${n.tipo==="viagem"?"Ex: Férias em Orlando":"Ex: Aniversário da Manu"}/></div>
+            ${n.tipo==="viagem"
+              ?html`<div style=${{display:"flex",gap:11}}>
+                <div style=${{flex:1}}><span className="label">Início</span><input className="input" type="date" value=${n.data} onChange=${function(e){up("data",e.target.value);}}/></div>
+                <div style=${{flex:1}}><span className="label">Fim</span><input className="input" type="date" value=${n.data_fim} onChange=${function(e){up("data_fim",e.target.value);}}/></div>
+              </div>`
+              :html`<div>
+                <div><span className="label">Data</span><input className="input" type="date" value=${n.data} onChange=${function(e){up("data",e.target.value);}}/></div>
+                <div style=${{display:"flex",gap:11,marginTop:12}}>
+                  <div style=${{flex:1}}><span className="label">Início</span><input className="input" type="time" value=${n.inicio} onChange=${function(e){up("inicio",e.target.value);}}/></div>
+                  <div style=${{flex:1}}><span className="label">Fim</span><input className="input" type="time" value=${n.fim} onChange=${function(e){up("fim",e.target.value);}}/></div>
+                </div>
+              </div>`}
+            <div><span className="label">${n.tipo==="viagem"?"Destino":"Local"}</span><input className="input" value=${n.local} onChange=${function(e){up("local",e.target.value);}}/></div>
+            ${n.tipo!=="viagem"?html`<div><span className="label">Convidado / aniversariante</span><input className="input" value=${n.convidado} onChange=${function(e){up("convidado",e.target.value);}}/></div>`:null}
             <div><span className="label">De quem é</span>
               <div style=${{display:"flex",gap:8}}>
                 <div className="seg" onClick=${function(){up("festa_infantil",false);}} style=${!n.festa_infantil?{borderColor:COR.pais,background:COR.paisBg,color:COR.pais}:{}}>Casal / pais</div>
                 <div className="seg" onClick=${function(){up("festa_infantil",true);}} style=${n.festa_infantil?{borderColor:COR.meninas,background:COR.meninasBg,color:COR.meninas}:{}}>Das meninas</div>
               </div>
             </div>
-            ${n.festa_infantil?html`<div><span className="label">Quem leva / busca</span><input className="input" value=${n.responsavel} onChange=${function(e){up("responsavel",e.target.value);}}/></div>`:null}
+            ${(n.festa_infantil&&n.tipo!=="viagem")?html`<div><span className="label">Quem leva / busca</span><input className="input" value=${n.responsavel} onChange=${function(e){up("responsavel",e.target.value);}}/></div>`:null}
             <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvar}>${editId?"Salvar alterações":"Guardar"}</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);setEditId(null);setN(vazio);}}>Cancelar</button></div>
           </div>`}
       <div className="eyebrow" style=${{margin:"22px 2px 12px"}}>Próximos</div>
-      ${eventos.length===0
+      ${raiz.length===0
         ? html`<div className="card" style=${{padding:24,textAlign:"center"}}><div style=${{fontWeight:600}}>Nada marcado ainda</div></div>`
-        : html`<div style=${{display:"flex",flexDirection:"column",gap:11}}>${eventos.map(function(ev){const cor=ev.festa_infantil?COR.meninas:COR.pais;const corBg=ev.festa_infantil?COR.meninasBg:COR.paisBg;return html`
+        : html`<div style=${{display:"flex",flexDirection:"column",gap:11}}>${raiz.map(function(ev){const viagem=ehViagem(ev);const cor=viagem?"#C99A2E":(ev.festa_infantil?COR.meninas:COR.pais);const filhos=viagem?filhosDe(ev.id):[];return html`
             <div className="card" key=${ev.id} style=${{display:"flex",overflow:"hidden",padding:0}}>
               <div style=${{width:8,background:cor}}></div>
               <div style=${{padding:"14px 14px 14px 16px",flex:1,minWidth:0}}>
-                <div style=${{display:"flex",justifyContent:"space-between",gap:8}}><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17}}>${ev.titulo}</div><span className="chip" style=${{background:corFalta(ev.data).bg,color:corFalta(ev.data).fg}}>${falta(ev.data)}</span></div>
-                <div style=${{color:"#857A8C",fontSize:13.5,margin:"6px 0 2px"}}>${fCurta(ev.data)}${ev.inicio?" · "+ev.inicio+(ev.fim?"–"+ev.fim:""):""}${ev.local?" · "+ev.local:""}</div>
-                ${ev.responsavel?html`<div style=${{fontSize:13}}><b>Quem leva:</b> ${ev.responsavel}</div>`:null}
+                <div style=${{display:"flex",justifyContent:"space-between",gap:8}}><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:17}}>${viagem?"✈️ ":""}${ev.titulo}</div><span className="chip" style=${{background:corFaltaEv(ev).bg,color:corFaltaEv(ev).fg}}>${faltaEv(ev)}</span></div>
+                <div style=${{color:"#857A8C",fontSize:13.5,margin:"6px 0 2px"}}>${viagem&&ev.data_fim?(fCurta(ev.data)+" a "+fCurta(ev.data_fim)):fCurta(ev.data)}${ev.inicio?" · "+ev.inicio+(ev.fim?"–"+ev.fim:""):""}${ev.local?" · "+ev.local:""}</div>
+                ${ev.responsavel&&!viagem?html`<div style=${{fontSize:13}}><b>Quem leva:</b> ${ev.responsavel}</div>`:null}
+                ${viagem?html`<div style=${{display:"flex",flexDirection:"column",gap:6,marginTop:10}}>
+                  ${filhos.length?filhos.map(cardFilho):html`<div className="note" style=${{fontSize:12}}>Nenhum passeio marcado ainda.</div>`}
+                  <button className="btn btn-ghost" style=${{padding:9,fontSize:13}} onClick=${function(){addFilho(ev);}}>+ Adicionar passeio</button>
+                </div>`:null}
                 <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:11}}>
                   <div style=${{display:"flex",gap:8}}>
                     <button className="btn btn-primary" style=${{flex:1,padding:10}} onClick=${function(){compartilhar(ev,toast);}}>Compartilhar lembrete</button>
@@ -222,7 +268,6 @@ function Agenda(props){
             </div>`;})}</div>`}
     </div>`;
 }
-
 const CATS={Essencial:{pts:1,emoji:"🌱",cor:"#2E8B83"},Crescimento:{pts:2,emoji:"🌟",cor:"#C99A2E"},Extra:{pts:4,emoji:"🎁",cor:"#EC6A4C"}};
 const CATEGORIAS=["Essencial","Crescimento","Extra"];
 function catInfo(c){return CATS[c]||{pts:1,emoji:"•",cor:"#857A8C"};}
