@@ -558,7 +558,7 @@ function Album(props){
     catch(e){ if(e&&e.name==="AbortError")return; try{await navigator.clipboard.writeText(txt);toast("Lista copiada! Cole no WhatsApp.");}catch(_){toast("Não consegui copiar.");} }
   }
 
-  async function prepImg(file){const bmp=await createImageBitmap(file);const max=1568;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.85);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
+  async function prepImg(file){const bmp=await createImageBitmap(file);const max=2400;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.92);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
   async function escanear(e){
     const file=e.target.files&&e.target.files[0]; if(!file)return;
     const t=SELECOES.find(function(x){return x.c===tela;}); if(!t)return;
@@ -569,8 +569,9 @@ function Album(props){
       if(r.error)throw r.error;
       const d=r.data||{}; const validos=codesDe(t);
       const filtra=function(a){return (a||[]).map(function(x){return String(x).replace(/\s/g,"").toUpperCase();}).filter(function(x){return validos.indexOf(x)>=0;});};
+      if(d.error)throw new Error(d.error);
       setScan({completas:filtra(d.completas),faltantes:filtra(d.faltantes)});
-    }catch(err){toast("Não consegui ler a página. Tente foto mais de perto, com boa luz.");}
+    }catch(err){var em=String((err&&err.message)||err||"");if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ler-album não foi encontrada no Supabase. Faça o deploy dela (Edge Functions).");}else{toast("Falha na leitura: "+(em.slice(0,120)||"tente foto mais de perto, com boa luz."));}}
     finally{setLendo(false);e.target.value="";}
   }
   async function aplicarScan(){
@@ -625,8 +626,8 @@ function Album(props){
           <button className=${"fchip"+(modo==="menos"?" on":"")} style=${{flex:1}} onClick=${function(){setModo("menos");}}>➖ Corrigir</button>
         </div>
         <div style=${{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:7,marginTop:12}}>
-          ${codesDe(t).map(function(c){var q=qtdDe(c);var tem=q>=1;return html`<button key=${c} onClick=${function(){tap(c);}} style=${{position:"relative",padding:"13px 0",borderRadius:11,border:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontWeight:700,fontSize:13,background:tem?"#DFF2E5":"#FADBD5",color:tem?"#2F9E44":"#C64B33"}}>
-            ${rotulo(t,c)}
+          ${codesDe(t).map(function(c){var q=qtdDe(c);var tem=q>=1;return html`<button key=${c} onClick=${function(){tap(c);}} style=${{position:"relative",padding:"13px 0",borderRadius:11,border:"none",cursor:"pointer",fontFamily:"'Space Mono',monospace",fontWeight:700,fontSize:10.5,letterSpacing:0,background:tem?"#DFF2E5":"#FADBD5",color:tem?"#2F9E44":"#C64B33"}}>
+            ${c}
             ${q>1?html`<span style=${{position:"absolute",top:-5,right:-4,minWidth:17,height:17,lineHeight:"17px",borderRadius:9,background:"#C99A2E",color:"#fff",fontSize:10,fontWeight:800,padding:"0 3px"}}>${q-1}</span>`:null}
           </button>`;})}
         </div>
