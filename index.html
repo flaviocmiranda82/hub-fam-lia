@@ -281,6 +281,13 @@ const SUGESTOES={
   Crescimento:["Ler por 15 a 20 minutos","Contar aos pais algo que aprendeu na leitura","Fazer uma oração","Ler ou ouvir uma história bíblica","Praticar uma atividade física","Fazer uma atividade criativa","Fazer uma boa ação ou ser gentil","Dizer três gratidões do dia","Dizer 'Te amo' e abraçar a família","Participar da igreja","Participar da célula"],
   Extra:["Ajudar a pôr e tirar a mesa","Ajudar a organizar uma área da casa","Separar roupas ou objetos para doação","Ajudar a irmã em uma atividade","Preparar uma surpresa gentil","Ler além do tempo mínimo","Participar da escolinha da igreja"]
 };
+const SUGESTOES_CASAL={
+  "Comunicação e diálogo":["Dar bom dia com presença","Perguntar como foi o dia do outro","Ouvir sem interromper","Não transformar conversa em defesa pessoal","Falar o que sente antes de explodir","Evitar ironia e sarcasmo","Não discutir no auge da raiva","Pedir desculpas sem justificar tudo","Perdoar sem usar o erro como arma","Conversar sobre incômodos pequenos"],
+  "Respeito e segurança emocional":["Não humilhar o outro em público","Não expor problemas íntimos a terceiros","Evitar gritos e ataques pessoais","Respeitar o tempo emocional do outro","Tratar o cônjuge melhor que pessoas de fora","Não aceitar a mediocridade e melhorar"],
+  "Afeto e conexão":["Abraçar sem motivo","Beijar com intenção","Carinho em pequenas atitudes","Elogiar aparência, esforço e caráter","Conversa sem celular","Sair juntos, mesmo algo simples","Rir juntos","Ritual do casal: café, caminhada, oração","Celebrar pequenas vitórias","Manter admiração ativa pelo outro"],
+  "Vida prática e parceria":["Dividir a casa de forma justa","Transparência sobre dinheiro","Planejar a semana juntos","Combinar prioridades da família","Cuidar dos filhos como equipe","Decidir o importante em conjunto","Respeitar acordos feitos"],
+  "Intimidade, fé e futuro":["Cuidar da vida íntima com carinho","Conversar sobre expectativas de intimidade","Orar juntos","Cultivar projetos em comum","Investir no crescimento de cada um","Buscar ajuda para sair de um ciclo ruim"]
+};
 function Pote(props){
   var frac=Math.max(0,Math.min(props.frac||0,1));
   var W=props.w||100, H=Math.round(W*1.46);
@@ -304,20 +311,21 @@ function Missoes(props){
   const toast=props.toast, papel=props.papel;
   const semana=semanaAtual(), pai=(papel==="pai"||papel==="mae"), hoje=hojeLocal();
   const diaSem=new Date().getDay();
-  const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",frequencia:"diaria",recorrente:true,dias:[0,1,2,3,4,5,6]};
-  const [modelos,setModelos]=useState([]),[checks,setChecks]=useState([]);
+  const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",frequencia:"diaria",recorrente:true,dias:[0,1,2,3,4,5,6],privada:false};
+  const [modelos,setModelos]=useState([]),[checks,setChecks]=useState([]),[editIdM,setEditIdM]=useState(null),[membrosL,setMembrosL]=useState([]);
   const [abrir,setAbrir]=useState(false),[n,setN]=useState(vazio);
   const [meta,setMeta]=useState(null),[valorForm,setValorForm]=useState(10),[abrirVal,setAbrirVal]=useState(false);
   const [filhaAtiva,setFilhaAtiva]=useState(""),[avaliando,setAvaliando]=useState(null),[festa,setFesta]=useState(false);
-  const carregar=async function(){const a=await sb.from("missoes_modelo").select("*").eq("ativa",true).or("recorrente.eq.true,semana.eq."+semana).order("criado_em");setModelos(a.data||[]);const b=await sb.from("checkins").select("*").eq("semana",semana);setChecks(b.data||[]);};
+  const carregar=async function(){const a=await sb.from("missoes_modelo").select("*").eq("ativa",true).or("recorrente.eq.true,semana.eq."+semana).order("criado_em");var ms=a.data||[];if(!pai)ms=ms.filter(function(m){return !m.privada;});setModelos(ms);const b=await sb.from("checkins").select("*").eq("semana",semana);setChecks(b.data||[]);};
   const carregarMeta=async function(){const r=await sb.from("metas").select("*").eq("semana",semana).maybeSingle();if(r.data){setMeta(r.data);setValorForm(r.data.valor);}else{setMeta(null);}};
-  useEffect(function(){carregar();carregarMeta();const ch=sb.channel("f2").on("postgres_changes",{event:"*",schema:"public",table:"missoes_modelo"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"checkins"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
+  useEffect(function(){carregar();carregarMeta();sb.from("membros").select("nome,papel").then(function(r){setMembrosL(r.data||[]);});const ch=sb.channel("f2").on("postgres_changes",{event:"*",schema:"public",table:"missoes_modelo"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"checkins"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
   useEffect(function(){ if(!pai&&props.nome){ if(filhaAtiva!==props.nome)setFilhaAtiva(props.nome); return; } if(modelos.length){ const fs=[]; modelos.forEach(function(m){ if(m.responsavel&&fs.indexOf(m.responsavel)<0)fs.push(m.responsavel); }); if(fs.length&&fs.indexOf(filhaAtiva)<0)setFilhaAtiva(fs[0]); } },[modelos,props.nome]);
 
   const setF=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
   const trocaCat=function(cat){setN(function(p){return Object.assign({},p,{categoria:cat,pontos:catInfo(cat).pts});});};
   const toggleDia=function(d){setN(function(p){var arr=p.dias.slice();var i=arr.indexOf(d);if(i>=0)arr.splice(i,1);else arr.push(d);if(arr.length===0)arr=[d];return Object.assign({},p,{dias:arr});});};
-  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} var dcsv=(n.frequencia==="semanal"||n.dias.length===7)?null:n.dias.slice().sort(function(a,b){return a-b;}).join(","); const r=await sb.from("missoes_modelo").insert({titulo:n.titulo,categoria:n.categoria,pontos:Number(n.pontos),responsavel:n.responsavel,frequencia:n.frequencia,recorrente:n.recorrente,semana:semana,dias:dcsv}); if(r.error)toast(r.error.message); else{setN(Object.assign({},vazio,{responsavel:n.responsavel}));setAbrir(false);carregar();} }
+  async function add(){ if(!n.titulo.trim()||!n.responsavel){toast("Preencha missão e responsável.");return;} var dcsv=(n.frequencia==="semanal"||n.dias.length===7)?null:n.dias.slice().sort(function(a,b){return a-b;}).join(","); var payload={titulo:n.titulo,categoria:n.categoria,pontos:Number(n.pontos),responsavel:n.responsavel,frequencia:n.frequencia,recorrente:n.recorrente,semana:semana,dias:dcsv,privada:!!n.privada}; const r=editIdM?await sb.from("missoes_modelo").update(payload).eq("id",editIdM):await sb.from("missoes_modelo").insert(payload); if(r.error)toast(r.error.message); else{setN(Object.assign({},vazio,{responsavel:n.responsavel}));setAbrir(false);setEditIdM(null);carregar();} }
+  function editarM(m){ setN({titulo:m.titulo||"",categoria:(m.categoria==="Base"?"Essencial":m.categoria==="Esforço"?"Crescimento":m.categoria)||"Essencial",pontos:m.pontos||1,responsavel:m.responsavel||"",frequencia:m.frequencia||"diaria",recorrente:m.recorrente!==false,dias:m.dias?String(m.dias).split(",").map(Number):[0,1,2,3,4,5,6],privada:!!m.privada}); setEditIdM(m.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   async function apagarMod(id){ await sb.from("missoes_modelo").delete().eq("id",id); carregar(); }
   async function toggleRec(m){ const r=await sb.from("missoes_modelo").update({recorrente:!m.recorrente,semana:semana}).eq("id",m.id); if(r.error)toast(r.error.message); else carregar(); }
   function comemorar(){ setFesta(true); toast("🎉 Missão cumprida!"); setTimeout(function(){setFesta(false);},1500); }
@@ -357,9 +365,10 @@ function Missoes(props){
         <div style=${{display:"flex",justifyContent:"space-between",gap:8}}>
           <div style=${{display:"flex",gap:9,alignItems:"flex-start"}}>
             <span style=${{fontSize:22,lineHeight:1.1}}>${info.emoji}</span>
-            <div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15.5}}>${m.titulo}</div><div className="note">${sem?"semanal":"diária"} · ${m.pontos} ${m.pontos===1?"ponto":"pontos"}${rot?(" · 📅 "+rot):""}${!sem?(" · 🔥 "+df+"/"+diasArr(m).length):""}</div></div>
+            <div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:15.5}}>${m.privada?"🔒 ":""}${m.titulo}</div><div className="note">${sem?"semanal":"diária"} · ${m.pontos} ${m.pontos===1?"ponto":"pontos"}${rot?(" · 📅 "+rot):""}${!sem?(" · 🔥 "+df+"/"+diasArr(m).length):""}</div></div>
           </div>
           <div style=${{display:"flex",gap:6,alignItems:"flex-start",flexShrink:0}}>
+            ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 9px",fontSize:13}} onClick=${function(){editarM(m);}}>✏️</button>`:null}
             ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 9px",fontSize:13}} title=${m.recorrente?"Volta toda semana — tocar para cancelar":"Só esta semana — tocar para repetir toda semana"} onClick=${function(){toggleRec(m);}}>${m.recorrente?"🔁":"1×"}</button>`:null}
             ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 10px",fontSize:14}} onClick=${function(){apagarMod(m.id);}}>×</button>`:null}
           </div>
@@ -419,16 +428,21 @@ function Missoes(props){
             <option value="">— Escolher sugestão de ${n.categoria} —</option>
             ${(SUGESTOES[n.categoria]||[]).map(function(s){return html`<option key=${s} value=${s}>${s}</option>`;})}
           </select>
+          ${pai?html`<select className="input" value="" onChange=${function(e){if(e.target.value)setF("titulo",e.target.value);e.target.value="";}} style=${{marginBottom:8}}>
+            <option value="">— 💞 Sugestões do casal —</option>
+            ${Object.keys(SUGESTOES_CASAL).map(function(g){return html`<optgroup key=${g} label=${g}>${SUGESTOES_CASAL[g].map(function(x){return html`<option key=${x} value=${x}>${x}</option>`;})}</optgroup>`;})}
+          </select>`:null}
           <input className="input" value=${n.titulo} onChange=${function(e){setF("titulo",e.target.value);}} placeholder="ou escreva a missão"/>
         </div>
         <div><span className="label">Frequência</span><div style=${{display:"flex",gap:8}}>${[["diaria","Diária"],["semanal","Semanal"]].map(function(f){var on=(n.frequencia===f[0]);return html`<button key=${f[0]} type="button" className=${"fchip"+(on?" on":"")} style=${{flex:1}} onClick=${function(){setF("frequencia",f[0]);}}>${f[1]}</button>`;})}</div></div>
         ${n.frequencia==="diaria"?html`<div><span className="label">Dias da semana</span><div style=${{display:"flex",gap:5,flexWrap:"wrap"}}>${[1,2,3,4,5,6,0].map(function(d){var on=(n.dias.indexOf(d)>=0);return html`<button key=${d} type="button" className=${"fchip"+(on?" on":"")} style=${{padding:"7px 0",minWidth:44,textAlign:"center"}} onClick=${function(){toggleDia(d);}}>${DIAS_ABREV[d]}</button>`;})}</div></div>`:null}
         <div><span className="label">Recorrência</span><div style=${{display:"flex",gap:8}}>${[[true,"🔁 Toda semana"],[false,"1× Só esta semana"]].map(function(f){var on=(n.recorrente===f[0]);return html`<button key=${String(f[0])} type="button" className=${"fchip"+(on?" on":"")} style=${{flex:1}} onClick=${function(){setF("recorrente",f[0]);}}>${f[1]}</button>`;})}</div></div>
+        <div><span className="label">Visibilidade</span><div style=${{display:"flex",gap:8}}>${[[false,"👀 Família"],[true,"🔒 Só os pais"]].map(function(f){var on=(n.privada===f[0]);return html`<button key=${"v"+String(f[0])} type="button" className=${"fchip"+(on?" on":"")} style=${{flex:1}} onClick=${function(){setF("privada",f[0]);}}>${f[1]}</button>`;})}</div></div>
         <div style=${{display:"flex",gap:11}}>
           <div style=${{flex:1}}><span className="label">Responsável (nome)</span><input className="input" value=${n.responsavel} onChange=${function(e){setF("responsavel",e.target.value);}} placeholder="Ex: Larissa"/></div>
           <div style=${{width:84}}><span className="label">Pontos</span><input className="input" type="number" value=${n.pontos} onChange=${function(e){setF("pontos",e.target.value);}}/></div>
         </div>
-        <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${add}>Criar missão</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);}}>Cancelar</button></div>
+        <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${add}>${editIdM?"Salvar alterações":"Criar missão"}</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);setEditIdM(null);setN(vazio);}}>Cancelar</button></div>
       </div>`:null}
 
       ${modelos.length===0?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>🗺️</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>A jornada ainda não começou</div><div className="note" style=${{marginTop:4}}>${pai?"Toque em + Nova missão para criar a primeira.":"Peça aos pais para criar as missões."}</div></div>`
@@ -438,6 +452,14 @@ function Missoes(props){
             <div style=${{display:"flex",flexDirection:"column",gap:10}}>${lista.map(cardMod)}</div>
           </div>`;})}
         </div>`:null)}
+
+      ${(function(){ if(pai)return null; var nomesPais=["Casal"]; membrosL.forEach(function(mm){ if((mm.papel==="pai"||mm.papel==="mae")&&mm.nome&&nomesPais.indexOf(mm.nome)<0)nomesPais.push(mm.nome); }); var secPais=modelos.filter(function(m){return nomesPais.indexOf(m.responsavel)>=0;}); if(!secPais.length)return null; return html`<div style=${{marginTop:24}}>
+        <div className="catit"><span style=${{fontSize:15}}>👀</span>Missões dos pais</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:8}}>${secPais.map(function(m){var info=catInfo(m.categoria);var sem=(m.frequencia==="semanal");return html`<div key=${m.id} className="card" style=${{display:"flex",overflow:"hidden",padding:0,opacity:0.92}}>
+          <div style=${{width:7,background:info.cor}}></div>
+          <div style=${{padding:"10px 13px",flex:1}}><div style=${{fontWeight:700,fontSize:14,fontFamily:"\'Bricolage Grotesque\',sans-serif"}}>${info.emoji} ${m.titulo}</div><div className="note" style=${{fontSize:11.5}}>${m.responsavel} · ${sem?"semanal":"diária"} · acompanhando 👀</div></div>
+        </div>`;})}</div>
+      </div>`;})()}
     </div>`;
 }
 function Inicio(props){
@@ -501,7 +523,16 @@ function Inicio(props){
             <div className="pt-dado">${ms}</div>
           </div>
         </button>
-        ${props.albumAtivo?html`<button className="capa-portal anim" style=${{animationDelay:".24s",background:"linear-gradient(150deg,#C99A2E,#a87e1f)"}} onClick=${function(){props.ir("album");}}>
+        <button className="capa-portal anim" style=${{animationDelay:".24s",background:"linear-gradient(150deg,#6E5A8E,#55446E)"}} onClick=${function(){props.ir("carteira");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">💰</div>
+            <div className="pt-tit">Carteira</div>
+            <div className="pt-desc">Semanada, entradas e gastos</div>
+          </div>
+        </button>
+        ${props.albumAtivo?html`<button className="capa-portal anim" style=${{animationDelay:".3s",background:"linear-gradient(150deg,#C99A2E,#a87e1f)"}} onClick=${function(){props.ir("album");}}>
           <div className="pt-bolha"></div>
           <div className="pt-seta">→</div>
           <div style=${{position:"relative",zIndex:1}}>
@@ -529,6 +560,104 @@ const SELECOES=[
 {c:"POR",n:"Portugal",b:"🇵🇹"},{c:"COD",n:"Congo DR",b:"🇨🇩"},{c:"UZB",n:"Uzbekistan",b:"🇺🇿"},{c:"COL",n:"Colombia",b:"🇨🇴"},
 {c:"ENG",n:"England",b:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},{c:"CRO",n:"Croatia",b:"🇭🇷"},{c:"GHA",n:"Ghana",b:"🇬🇭"},{c:"PAN",n:"Panama",b:"🇵🇦"}
 ];
+
+function Carteira(props){
+  const toast=props.toast, papel=props.papel, nome=props.nome;
+  const pai=(papel==="pai"||papel==="mae");
+  const semana=semanaAtual();
+  const [movs,setMovs]=useState([]),[membrosL,setMembrosL]=useState([]);
+  const [filhaAtiva,setFilhaAtiva]=useState(""),[form,setForm]=useState(null),[lendo,setLendo]=useState(false);
+  const [mesadaCalc,setMesadaCalc]=useState(null);
+  const carregar=async function(){const r=await sb.from("carteira").select("*").order("data",{ascending:false}).order("criado_em",{ascending:false});setMovs(r.data||[]);};
+  useEffect(function(){carregar();sb.from("membros").select("nome,papel").then(function(r){setMembrosL(r.data||[]);});},[]);
+  const filhas=[]; membrosL.forEach(function(mm){ if(mm.papel==="filha"&&mm.nome&&filhas.indexOf(mm.nome)<0)filhas.push(mm.nome); });
+  useEffect(function(){ if(!pai&&nome){ if(filhaAtiva!==nome)setFilhaAtiva(nome); return; } if(filhas.length&&filhas.indexOf(filhaAtiva)<0)setFilhaAtiva(filhas[0]); },[membrosL,nome]);
+
+  useEffect(function(){ if(!filhaAtiva){setMesadaCalc(null);return;}
+    Promise.all([
+      sb.from("metas").select("valor").eq("semana",semana).maybeSingle(),
+      sb.from("missoes_modelo").select("*").eq("ativa",true).or("recorrente.eq.true,semana.eq."+semana),
+      sb.from("checkins").select("*").eq("semana",semana)
+    ]).then(function(rs){
+      var valor=rs[0].data?Number(rs[0].data.valor):0; var mods=(rs[1].data||[]).filter(function(m){return m.responsavel===filhaAtiva;}); var cks=rs[2].data||[];
+      if(!valor||!mods.length){setMesadaCalc(null);return;}
+      var bP=0,bE=0,xE=0;
+      mods.forEach(function(m){ var mc=cks.filter(function(cc){return cc.modelo_id===m.id;}); var pts=m.pontos||0;
+        if(m.frequencia==="semanal"){ var e=mc.length?pts:0; if(m.categoria==="Extra")xE+=e; else{bP+=pts;bE+=e;} }
+        else { var dd=m.dias?String(m.dias).split(",").length:7; var ds={}; mc.forEach(function(cc){ds[cc.dia]=1;}); var f=Math.min(Object.keys(ds).length,dd); if(m.categoria==="Extra")xE+=f*pts; else{bP+=dd*pts;bE+=f*pts;} } });
+      if(!bP){setMesadaCalc(null);return;}
+      var basePct=bE/bP, totalPct=(bE+xE)/bP;
+      setMesadaCalc(basePct>=0.8?Math.min(totalPct,1.2)*valor:0);
+    });
+  },[filhaAtiva,movs]);
+
+  const fmtR=function(v){return "R$ "+(Math.round(Number(v)*100)/100).toFixed(2).replace(".",",");};
+  const movsF=movs.filter(function(m){return m.nome===filhaAtiva;});
+  var saldo=0,totE=0,totG=0; movsF.forEach(function(m){ if(m.tipo==="entrada"){saldo+=Number(m.valor);totE+=Number(m.valor);} else {saldo-=Number(m.valor);totG+=Number(m.valor);} });
+  const upF=function(k,v){setForm(function(p){var o=Object.assign({},p);o[k]=v;return o;});};
+  async function salvarMov(){ if(!form)return; if(!String(form.descricao||"").trim()){toast("Descreva o lançamento.");return;} var v=Number(String(form.valor).replace(",","."))||0; if(v<=0){toast("Valor precisa ser maior que zero.");return;}
+    const r=await sb.from("carteira").insert({nome:filhaAtiva,tipo:form.tipo,descricao:form.descricao,valor:v,data:form.data||hojeLocal()});
+    if(r.error)toast(r.error.message); else{setForm(null);carregar();toast(form.tipo==="entrada"?"Entrada registrada 💵":"Gasto registrado 🧾");} }
+  async function apagarMov(id){ await sb.from("carteira").delete().eq("id",id); carregar(); }
+
+  async function prepImg(file){const bmp=await createImageBitmap(file);const max=2000;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.88);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
+  async function lerGasto(e){ const file=e.target.files&&e.target.files[0]; if(!file)return; setLendo(true);
+    try{ const img=await prepImg(file);
+      const r=await sb.functions.invoke("ler-gasto",{body:{imagem:img.base64,mediaType:img.mediaType}});
+      if(r.error)throw r.error; const d=r.data||{}; if(d.error)throw new Error(d.error);
+      setForm({tipo:"gasto",descricao:d.descricao||"",valor:d.valor||"",data:d.data||hojeLocal()});
+    }catch(err){ var em=String((err&&err.message)||err||""); if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ler-gasto não foi encontrada no Supabase. Faça o deploy dela.");}else{toast("Falha na leitura: "+(em.slice(0,120)||"tente outra foto."));} }
+    finally{setLendo(false);e.target.value="";} }
+
+  return html`
+    <div className="wrap">
+      <div className="eyebrow">💰 Carteira · ${semana}</div>
+      <div className="h1">Educação financeira</div>
+
+      ${(pai&&filhas.length>0)?html`<div style=${{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filhaAtiva?" on":"")} onClick=${function(){setFilhaAtiva(f);setForm(null);}}>${f}</button>`;})}</div>`:null}
+
+      <div className="card" style=${{padding:18,marginTop:14,textAlign:"center"}}>
+        <div className="eyebrow">Saldo de ${filhaAtiva||"—"}</div>
+        <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:34,color:saldo>=0?COR.pais:COR.meninas,lineHeight:1.1,marginTop:4}}>${fmtR(saldo)}</div>
+        <div className="note" style=${{marginTop:6}}>Entradas ${fmtR(totE)} · Gastos ${fmtR(totG)}</div>
+        ${mesadaCalc!==null?html`<div style=${{marginTop:10,padding:"8px 12px",borderRadius:12,background:COR.paisBg,color:COR.pais,fontSize:13,fontWeight:600}}>Semanada desta semana: ${fmtR(mesadaCalc)}${mesadaCalc===0?" (ainda não liberou 80%)":""}</div>`:null}
+      </div>
+
+      <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
+        ${pai?html`<div style=${{display:"flex",gap:8}}>
+          <button className="btn btn-primary" style=${{flex:1}} onClick=${function(){setForm({tipo:"entrada",descricao:"Semanada "+semana,valor:mesadaCalc!==null?(Math.round(mesadaCalc*100)/100):"",data:hojeLocal()});}}>💵 Receber semanada</button>
+          <button className="btn btn-ghost" style=${{flex:1}} onClick=${function(){setForm({tipo:"entrada",descricao:"",valor:"",data:hojeLocal()});}}>+ Outra entrada</button>
+        </div>`:null}
+        <div style=${{display:"flex",gap:8}}>
+          <button className="btn btn-primary" style=${{flex:1,background:COR.meninas}} onClick=${function(){setForm({tipo:"gasto",descricao:"",valor:"",data:hojeLocal()});}}>− Lançar gasto</button>
+          <button className="btn btn-ghost" style=${{flex:1}} disabled=${lendo} onClick=${function(){document.getElementById("gastoFile").click();}}>${lendo?"Lendo…":"📷 Gasto por foto"}</button>
+        </div>
+        <input id="gastoFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${lerGasto}/>
+      </div>
+
+      ${form?html`<div className="card" style=${{padding:16,marginTop:12,display:"flex",flexDirection:"column",gap:12,border:"2px solid "+(form.tipo==="entrada"?COR.pais:COR.meninas)}}>
+        <div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif"}}>${form.tipo==="entrada"?"💵 Nova entrada":"🧾 Novo gasto"} · ${filhaAtiva}</div>
+        <div><span className="label">Descrição</span><input className="input" value=${form.descricao} onChange=${function(e){upF("descricao",e.target.value);}} placeholder=${form.tipo==="entrada"?"Ex: Semanada, presente da vovó":"Ex: Sorvete, figurinhas"}/></div>
+        <div style=${{display:"flex",gap:11}}>
+          <div style=${{flex:1,minWidth:0}}><span className="label">Valor (R$)</span><input className="input" type="number" step="0.01" inputMode="decimal" style=${{width:"100%",minWidth:0,boxSizing:"border-box"}} value=${form.valor} onChange=${function(e){upF("valor",e.target.value);}}/></div>
+          <div style=${{flex:1,minWidth:0}}><span className="label">Data</span><input className="input" type="date" style=${{width:"100%",minWidth:0,boxSizing:"border-box"}} value=${form.data} onChange=${function(e){upF("data",e.target.value);}}/></div>
+        </div>
+        <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvarMov}>Salvar</button><button className="btn btn-ghost" onClick=${function(){setForm(null);}}>Cancelar</button></div>
+      </div>`:null}
+
+      <div className="eyebrow" style=${{margin:"22px 2px 10px"}}>Extrato</div>
+      ${movsF.length===0?html`<div className="card" style=${{padding:22,textAlign:"center"}}><div style=${{fontSize:26}}>🪙</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:4}}>Nada por aqui ainda</div><div className="note" style=${{marginTop:4}}>${pai?"Registre a primeira semanada.":"Seus lançamentos vão aparecer aqui."}</div></div>`
+      :html`<div style=${{display:"flex",flexDirection:"column",gap:7}}>${movsF.map(function(m){var ent=(m.tipo==="entrada");return html`<div key=${m.id} className="card" style=${{display:"flex",alignItems:"center",gap:10,padding:"10px 13px"}}>
+        <span style=${{fontSize:17,flexShrink:0}}>${ent?"🟢":"🔴"}</span>
+        <div style=${{flex:1,minWidth:0}}>
+          <div style=${{fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${m.descricao}</div>
+          <div className="note" style=${{fontSize:11.5}}>${fCurta(m.data)}</div>
+        </div>
+        <div style=${{fontWeight:800,fontFamily:"'Space Mono',monospace",fontSize:13.5,color:ent?COR.pais:COR.meninas,flexShrink:0}}>${ent?"+":"−"}${fmtR(m.valor)}</div>
+        ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 8px",fontSize:12,flexShrink:0}} onClick=${function(){apagarMov(m.id);}}>×</button>`:null}
+      </div>`;})}</div>`}
+    </div>`;
+}
 
 function Album(props){
   const toast=props.toast, pai=(props.papel==="pai"||props.papel==="mae");
@@ -776,11 +905,12 @@ function App(){
         <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
-      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
+      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:aba==="carteira"?html`<${Carteira} papel=${papel} nome=${nome} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
       <div className="tabs">
         <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
         <button className=${"tab"+(aba==="missoes"?" on":"")} onClick=${function(){setAba("missoes");}}>✅<br/>Missões</button>
+        <button className=${"tab"+(aba==="carteira"?" on":"")} onClick=${function(){setAba("carteira");}}>💰<br/>Carteira</button>
         ${albumAtivo?html`<button className=${"tab"+(aba==="album"?" on":"")} onClick=${function(){setAba("album");}}>⚽<br/>Álbum</button>`:null}
         ${(papel==="pai"||papel==="mae")?html`<button className=${"tab"+(aba==="painel"?" on":"")} onClick=${function(){setAba("painel");}}>📊<br/>Painel</button>`:null}
       </div>
