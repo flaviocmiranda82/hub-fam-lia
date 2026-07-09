@@ -46,14 +46,14 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__add('F
   .seg{flex:1;text-align:center;padding:10px;border-radius:11px;border:1px solid #ECE3D8;font-weight:600;font-size:14px;background:#fff;cursor:pointer}
   .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#2A2233;color:#fff;font-size:14px;padding:12px 18px;border-radius:13px;max-width:90%;text-align:center}
   .note{font-size:12.5px;color:#857A8C;line-height:1.5}
-  .capa-portal{position:relative;display:block;width:100%;text-align:left;border:none;cursor:pointer;border-radius:22px;padding:20px 20px 18px;color:#FBF6EF;overflow:hidden;box-shadow:0 12px 26px -16px rgba(42,34,51,.55)}
+  .capa-portal{position:relative;display:block;width:100%;text-align:left;border:none;cursor:pointer;border-radius:18px;padding:13px 13px 12px;color:#FBF6EF;overflow:hidden;box-shadow:0 10px 22px -14px rgba(42,34,51,.5);min-height:118px}
   .capa-portal:active{transform:scale(.985)}
-  .pt-emoji{font-size:30px;line-height:1}
-  .pt-tit{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:26px;line-height:1;margin-top:10px}
-  .pt-desc{font-size:13.5px;opacity:.93;margin-top:4px}
-  .pt-dado{font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;margin-top:15px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 11px;border-radius:999px}
-  .pt-seta{position:absolute;right:18px;top:20px;font-size:22px;opacity:.9;z-index:2}
-  .pt-bolha{position:absolute;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.12);right:-46px;bottom:-60px;z-index:0}
+  .pt-emoji{font-size:22px;line-height:1}
+  .pt-tit{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:17px;line-height:1.05;margin-top:7px}
+  .pt-desc{font-size:11px;opacity:.92;margin-top:3px;line-height:1.25}
+  .pt-dado{display:inline-block;margin-top:7px;padding:4px 8px;border-radius:9px;background:rgba(255,255,255,.18);font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.8px;text-transform:uppercase}
+  .pt-seta{position:absolute;right:11px;top:11px;font-size:15px;opacity:.9;z-index:2}
+  .pt-bolha{position:absolute;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.12);right:-34px;bottom:-42px;z-index:0}
   @keyframes subir{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
   .anim{opacity:0;animation:subir .55s cubic-bezier(.2,.7,.2,1) forwards}
   @media (prefers-reduced-motion:reduce){.anim{animation:none;opacity:1}}
@@ -288,6 +288,7 @@ const SUGESTOES_CASAL={
   "Vida prática e parceria":["Dividir a casa de forma justa","Transparência sobre dinheiro","Planejar a semana juntos","Combinar prioridades da família","Cuidar dos filhos como equipe","Decidir o importante em conjunto","Respeitar acordos feitos"],
   "Intimidade, fé e futuro":["Cuidar da vida íntima com carinho","Conversar sobre expectativas de intimidade","Orar juntos","Cultivar projetos em comum","Investir no crescimento de cada um","Buscar ajuda para sair de um ciclo ruim"]
 };
+const CATG=["🍦 Comida","🧸 Brinquedos","⚽ Figurinhas","👕 Roupas","🎢 Passeios","🎁 Presentes","📦 Outros"];
 function Pote(props){
   var frac=Math.max(0,Math.min(props.frac||0,1));
   var W=props.w||100, H=Math.round(W*1.46);
@@ -502,14 +503,14 @@ function Inicio(props){
         <div className="h1" style=${{fontSize:34,marginTop:8}}>${saud}</div>
         <div className="note" style=${{marginTop:6,fontSize:14}}>O que a família vai organizar hoje?</div>
       </div>
-      <div style=${{display:"flex",flexDirection:"column",gap:14,marginTop:24}}>
+      <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:22}}>
         <button className="capa-portal anim" style=${{animationDelay:".08s",background:"linear-gradient(150deg,#2E8B83,#256e68)"}} onClick=${function(){props.ir("agenda");}}>
           <div className="pt-bolha"></div>
           <div className="pt-seta">→</div>
           <div style=${{position:"relative",zIndex:1}}>
             <div className="pt-emoji">📅</div>
             <div className="pt-tit">Agenda</div>
-            <div className="pt-desc">Eventos e festas da família</div>
+            <div className="pt-desc">Eventos e festas</div>
             <div className="pt-dado">${ag}</div>
           </div>
         </button>
@@ -519,7 +520,7 @@ function Inicio(props){
           <div style=${{position:"relative",zIndex:1}}>
             <div className="pt-emoji">🎯</div>
             <div className="pt-tit">Missões</div>
-            <div className="pt-desc">Tarefas, pontos e mesada</div>
+            <div className="pt-desc">Tarefas e mesada</div>
             <div className="pt-dado">${ms}</div>
           </div>
         </button>
@@ -529,7 +530,7 @@ function Inicio(props){
           <div style=${{position:"relative",zIndex:1}}>
             <div className="pt-emoji">💰</div>
             <div className="pt-tit">Carteira</div>
-            <div className="pt-desc">Semanada, entradas e gastos</div>
+            <div className="pt-desc">Entradas e gastos</div>
           </div>
         </button>
         ${props.albumAtivo?html`<button className="capa-portal anim" style=${{animationDelay:".3s",background:"linear-gradient(150deg,#C99A2E,#a87e1f)"}} onClick=${function(){props.ir("album");}}>
@@ -538,7 +539,16 @@ function Inicio(props){
           <div style=${{position:"relative",zIndex:1}}>
             <div className="pt-emoji">⚽</div>
             <div className="pt-tit">Álbum da Copa</div>
-            <div className="pt-desc">Figurinhas: tenho, faltam, repetidas</div>
+            <div className="pt-desc">Figurinhas da família</div>
+          </div>
+        </button>`:null}
+        ${(props.papel==="pai"||props.papel==="mae")?html`<button className="capa-portal anim" style=${{animationDelay:".36s",background:"linear-gradient(150deg,#2A2233,#4A3E5C)"}} onClick=${function(){props.ir("painel");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">📊</div>
+            <div className="pt-tit">Painel</div>
+            <div className="pt-desc">Missões e finanças</div>
           </div>
         </button>`:null}
       </div>
@@ -596,7 +606,7 @@ function Carteira(props){
   var saldo=0,totE=0,totG=0; movsF.forEach(function(m){ if(m.tipo==="entrada"){saldo+=Number(m.valor);totE+=Number(m.valor);} else {saldo-=Number(m.valor);totG+=Number(m.valor);} });
   const upF=function(k,v){setForm(function(p){var o=Object.assign({},p);o[k]=v;return o;});};
   async function salvarMov(){ if(!form)return; if(!String(form.descricao||"").trim()){toast("Descreva o lançamento.");return;} var v=Number(String(form.valor).replace(",","."))||0; if(v<=0){toast("Valor precisa ser maior que zero.");return;}
-    const r=await sb.from("carteira").insert({nome:filhaAtiva,tipo:form.tipo,descricao:form.descricao,valor:v,data:form.data||hojeLocal()});
+    const r=await sb.from("carteira").insert({nome:filhaAtiva,tipo:form.tipo,descricao:form.descricao,valor:v,data:form.data||hojeLocal(),categoria:form.tipo==="gasto"?(form.categoria||"📦 Outros"):null});
     if(r.error)toast(r.error.message); else{setForm(null);carregar();toast(form.tipo==="entrada"?"Entrada registrada 💵":"Gasto registrado 🧾");} }
   async function apagarMov(id){ await sb.from("carteira").delete().eq("id",id); carregar(); }
 
@@ -605,7 +615,7 @@ function Carteira(props){
     try{ const img=await prepImg(file);
       const r=await sb.functions.invoke("ler-gasto",{body:{imagem:img.base64,mediaType:img.mediaType}});
       if(r.error)throw r.error; const d=r.data||{}; if(d.error)throw new Error(d.error);
-      setForm({tipo:"gasto",descricao:d.descricao||"",valor:d.valor||"",data:d.data||hojeLocal()});
+      setForm({tipo:"gasto",descricao:d.descricao||"",valor:d.valor||"",data:d.data||hojeLocal(),categoria:(CATG.indexOf(d.categoria)>=0?d.categoria:"📦 Outros")});
     }catch(err){ var em=String((err&&err.message)||err||""); if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ler-gasto não foi encontrada no Supabase. Faça o deploy dela.");}else{toast("Falha na leitura: "+(em.slice(0,120)||"tente outra foto."));} }
     finally{setLendo(false);e.target.value="";} }
 
@@ -629,7 +639,7 @@ function Carteira(props){
           <button className="btn btn-ghost" style=${{flex:1}} onClick=${function(){setForm({tipo:"entrada",descricao:"",valor:"",data:hojeLocal()});}}>+ Outra entrada</button>
         </div>`:null}
         <div style=${{display:"flex",gap:8}}>
-          <button className="btn btn-primary" style=${{flex:1,background:COR.meninas}} onClick=${function(){setForm({tipo:"gasto",descricao:"",valor:"",data:hojeLocal()});}}>− Lançar gasto</button>
+          <button className="btn btn-primary" style=${{flex:1,background:COR.meninas}} onClick=${function(){setForm({tipo:"gasto",descricao:"",valor:"",data:hojeLocal(),categoria:"📦 Outros"});}}>− Lançar gasto</button>
           <button className="btn btn-ghost" style=${{flex:1}} disabled=${lendo} onClick=${function(){document.getElementById("gastoFile").click();}}>${lendo?"Lendo…":"📷 Gasto por foto"}</button>
         </div>
         <input id="gastoFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${lerGasto}/>
@@ -642,6 +652,7 @@ function Carteira(props){
           <div style=${{flex:1,minWidth:0}}><span className="label">Valor (R$)</span><input className="input" type="number" step="0.01" inputMode="decimal" style=${{width:"100%",minWidth:0,boxSizing:"border-box"}} value=${form.valor} onChange=${function(e){upF("valor",e.target.value);}}/></div>
           <div style=${{flex:1,minWidth:0}}><span className="label">Data</span><input className="input" type="date" style=${{width:"100%",minWidth:0,boxSizing:"border-box"}} value=${form.data} onChange=${function(e){upF("data",e.target.value);}}/></div>
         </div>
+        ${form.tipo==="gasto"?html`<div><span className="label">Categoria</span><div style=${{display:"flex",gap:6,flexWrap:"wrap"}}>${CATG.map(function(c){var on=(form.categoria===c);return html`<button key=${c} type="button" className=${"fchip"+(on?" on":"")} style=${{padding:"7px 10px",fontSize:12}} onClick=${function(){upF("categoria",c);}}>${c}</button>`;})}</div></div>`:null}
         <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvarMov}>Salvar</button><button className="btn btn-ghost" onClick=${function(){setForm(null);}}>Cancelar</button></div>
       </div>`:null}
 
@@ -651,7 +662,7 @@ function Carteira(props){
         <span style=${{fontSize:17,flexShrink:0}}>${ent?"🟢":"🔴"}</span>
         <div style=${{flex:1,minWidth:0}}>
           <div style=${{fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${m.descricao}</div>
-          <div className="note" style=${{fontSize:11.5}}>${fCurta(m.data)}</div>
+          <div className="note" style=${{fontSize:11.5}}>${fCurta(m.data)}${m.categoria?(" · "+m.categoria):""}</div>
         </div>
         <div style=${{fontWeight:800,fontFamily:"'Space Mono',monospace",fontSize:13.5,color:ent?COR.pais:COR.meninas,flexShrink:0}}>${ent?"+":"−"}${fmtR(m.valor)}</div>
         ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 8px",fontSize:12,flexShrink:0}} onClick=${function(){apagarMov(m.id);}}>×</button>`:null}
@@ -784,10 +795,11 @@ function Album(props){
 
 function Painel(props){
   const pai=(props.papel==="pai"||props.papel==="mae");
-  const [mods,setMods]=useState([]),[checks,setChecks]=useState([]),[filha,setFilha]=useState("");
+  const [mods,setMods]=useState([]),[checks,setChecks]=useState([]),[filha,setFilha]=useState(""),[visao,setVisao]=useState("missoes"),[movs,setMovs]=useState([]);
   useEffect(function(){
     sb.from("missoes_modelo").select("*").eq("ativa",true).then(function(r){setMods(r.data||[]);});
     sb.from("checkins").select("*").then(function(r){setChecks(r.data||[]);});
+    sb.from("carteira").select("*").then(function(r){setMovs(r.data||[]);});
   },[]);
   const filhas=[]; mods.forEach(function(m){ if(m.responsavel&&filhas.indexOf(m.responsavel)<0)filhas.push(m.responsavel); });
   useEffect(function(){ if(filhas.length&&filhas.indexOf(filha)<0)setFilha(filhas[0]); },[mods]);
@@ -832,7 +844,12 @@ function Painel(props){
 
       ${filhas.length>0?html`<div style=${{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>${filhas.map(function(f){return html`<button key=${f} className=${"fchip"+(f===filha?" on":"")} onClick=${function(){setFilha(f);}}>${f}</button>`;})}</div>`:null}
 
-      ${!temDados?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>📊</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>Ainda sem dados</div><div className="note" style=${{marginTop:4}}>Os gráficos ganham vida conforme ${filha||"a família"} conclui missões.</div></div>`:html`<div>
+      <div style=${{display:"flex",gap:8,marginTop:12}}>
+        <button className=${"fchip"+(visao==="missoes"?" on":"")} style=${{flex:1}} onClick=${function(){setVisao("missoes");}}>🎯 Missões</button>
+        <button className=${"fchip"+(visao==="financeiro"?" on":"")} style=${{flex:1}} onClick=${function(){setVisao("financeiro");}}>💰 Financeiro</button>
+      </div>
+
+      ${visao!=="missoes"?null:!temDados?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>📊</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>Ainda sem dados</div><div className="note" style=${{marginTop:4}}>Os gráficos ganham vida conforme ${filha||"a família"} conclui missões.</div></div>`:html`<div>
 
       <div className="card" style=${{padding:16,marginTop:14}}>
         <div className="eyebrow" style=${{marginBottom:2}}>🌡️ Satisfação por missão</div>
@@ -878,6 +895,40 @@ function Painel(props){
       </div>`:null}
 
       </div>`}
+
+      ${visao!=="financeiro"?null:(function(){
+        var fmtR=function(v){return "R$ "+(Math.round(Number(v)*100)/100).toFixed(2).replace(".",",");};
+        var mf=movs.filter(function(m){return m.nome===filha;});
+        if(!mf.length)return html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>🪙</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>Sem movimentos ainda</div><div className="note" style=${{marginTop:4}}>Os lançamentos de ${filha||"cada filha"} na Carteira aparecem aqui.</div></div>`;
+        var totE=0,totG=0; mf.forEach(function(m){ if(m.tipo==="entrada")totE+=Number(m.valor); else totG+=Number(m.valor); });
+        var porMes={}; mf.forEach(function(m){ var k=(m.data||"").slice(0,7); if(!k)return; if(!porMes[k])porMes[k]={e:0,g:0}; if(m.tipo==="entrada")porMes[k].e+=Number(m.valor); else porMes[k].g+=Number(m.valor); });
+        var mesesK=Object.keys(porMes).sort().slice(-6);
+        var maxV=1; mesesK.forEach(function(k){ maxV=Math.max(maxV,porMes[k].e,porMes[k].g); });
+        var porCat={}; mf.forEach(function(m){ if(m.tipo!=="gasto")return; var c=m.categoria||"📦 Outros"; porCat[c]=(porCat[c]||0)+Number(m.valor); });
+        var cats=Object.keys(porCat).map(function(k){return {k:k,v:porCat[k]};}).sort(function(a,b){return b.v-a.v;});
+        return html`<div>
+        <div style=${{display:"flex",gap:8,marginTop:14}}>
+          ${[["🟢",fmtR(totE),"recebido",COR.pais],["🔴",fmtR(totG),"gasto",COR.meninas],["💰",fmtR(totE-totG),"saldo","#2A2233"]].map(function(x){return html`<div key=${x[2]} className="card" style=${{flex:1,padding:"12px 6px",textAlign:"center"}}><div style=${{fontSize:15}}>${x[0]}</div><div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:15.5,color:x[3]}}>${x[1]}</div><div className="note" style=${{fontSize:10.5}}>${x[2]}</div></div>`;})}
+        </div>
+        <div className="card" style=${{padding:16,marginTop:12}}>
+          <div className="eyebrow" style=${{marginBottom:2}}>🗓️ Mês a mês</div>
+          <div className="note" style=${{marginBottom:12}}>Recebido (verde) × gasto (coral)</div>
+          <div style=${{display:"flex",flexDirection:"column",gap:10}}>${mesesK.map(function(k){var v=porMes[k];var mm=Number(k.slice(5,7))-1;var lb=MESES[mm]+"/"+k.slice(2,4);return html`<div key=${k}>
+            <div style=${{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style=${{fontSize:12.5,fontWeight:700}}>${lb}</span><span className="note" style=${{fontSize:11}}>+${fmtR(v.e)} · −${fmtR(v.g)}</span></div>
+            <div style=${{height:7,background:"#F0EBE3",borderRadius:5,overflow:"hidden",marginBottom:3}}><div style=${{width:Math.round(v.e/maxV*100)+"%",height:"100%",background:COR.pais,borderRadius:5}}></div></div>
+            <div style=${{height:7,background:"#F0EBE3",borderRadius:5,overflow:"hidden"}}><div style=${{width:Math.round(v.g/maxV*100)+"%",height:"100%",background:COR.meninas,borderRadius:5}}></div></div>
+          </div>`;})}</div>
+        </div>
+        ${cats.length?html`<div className="card" style=${{padding:16,marginTop:12}}>
+          <div className="eyebrow" style=${{marginBottom:2}}>🧾 Gastos por categoria</div>
+          <div className="note" style=${{marginBottom:12}}>Onde o dinheiro de ${filha} está indo</div>
+          <div style=${{display:"flex",flexDirection:"column",gap:9}}>${cats.map(function(x){var pct=totG?Math.round(x.v/totG*100):0;return html`<div key=${x.k}>
+            <div style=${{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style=${{fontSize:13,fontWeight:600}}>${x.k}</span><span className="note">${fmtR(x.v)} · ${pct}%</span></div>
+            <div style=${{height:8,background:"#F0EBE3",borderRadius:6,overflow:"hidden"}}><div style=${{width:pct+"%",height:"100%",borderRadius:6,background:"#C99A2E"}}></div></div>
+          </div>`;})}</div>
+        </div>`:null}
+        </div>`;
+      })()}
     </div>`;
 }
 
