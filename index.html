@@ -41,7 +41,7 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__add('F
   .input{width:100%;font-size:15px;color:#2A2233;background:#fff;border:1px solid #ECE3D8;border-radius:11px;padding:11px 12px}
   .chip{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;display:inline-flex;gap:5px;align-items:center}
   .tabs{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #ECE3D8;display:flex}
-  .tab{flex:1;padding:11px 0 18px;text-align:center;font-size:12px;font-weight:600;color:#857A8C;background:none;border:none}
+  .tab{flex:1;padding:10px 0 16px;text-align:center;font-size:10px;font-weight:600;color:#857A8C;background:none;border:none;line-height:1.35;min-width:0}
   .tab.on{color:#2A2233}
   .seg{flex:1;text-align:center;padding:10px;border-radius:11px;border:1px solid #ECE3D8;font-weight:600;font-size:14px;background:#fff;cursor:pointer}
   .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#2A2233;color:#fff;font-size:14px;padding:12px 18px;border-radius:13px;max-width:90%;text-align:center}
@@ -313,7 +313,7 @@ function Missoes(props){
   const semana=semanaAtual(), pai=(papel==="pai"||papel==="mae"), hoje=hojeLocal();
   const diaSem=new Date().getDay();
   const vazio={titulo:"",categoria:"Essencial",pontos:1,responsavel:"",frequencia:"diaria",recorrente:true,dias:[0,1,2,3,4,5,6],privada:false};
-  const [modelos,setModelos]=useState([]),[checks,setChecks]=useState([]),[editIdM,setEditIdM]=useState(null),[membrosL,setMembrosL]=useState([]);
+  const [modelos,setModelos]=useState([]),[checks,setChecks]=useState([]),[editIdM,setEditIdM]=useState(null),[membrosL,setMembrosL]=useState([]),[filtroVis,setFiltroVis]=useState("todas");
   const [abrir,setAbrir]=useState(false),[n,setN]=useState(vazio);
   const [meta,setMeta]=useState(null),[valorForm,setValorForm]=useState(10),[abrirVal,setAbrirVal]=useState(false);
   const [filhaAtiva,setFilhaAtiva]=useState(""),[avaliando,setAvaliando]=useState(null),[festa,setFesta]=useState(false);
@@ -356,7 +356,7 @@ function Missoes(props){
   const modsFilha=modelos.filter(function(m){return m.responsavel===filhaAtiva;});
   const diariasHoje=modsFilha.filter(function(m){return m.frequencia!=="semanal"&&valeHoje(m);});
   const hojeFeitas=diariasHoje.filter(function(m){return feitoHoje(m.id);}).length;
-  function grupo(cat){ return modsFilha.filter(function(m){ if(cat==="Extra")return m.categoria==="Extra"; if(cat==="Essencial")return m.categoria==="Essencial"||m.categoria==="Base"; if(cat==="Crescimento")return m.categoria==="Crescimento"||m.categoria==="Esforço"; return false; }); }
+  function grupo(cat){ return modsFilha.filter(function(m){ if(pai&&filtroVis==="familia"&&m.privada)return false; if(pai&&filtroVis==="privadas"&&!m.privada)return false; if(cat==="Extra")return m.categoria==="Extra"; if(cat==="Essencial")return m.categoria==="Essencial"||m.categoria==="Base"; if(cat==="Crescimento")return m.categoria==="Crescimento"||m.categoria==="Esforço"; return false; }); }
 
   function cardMod(m){
     var info=catInfo(m.categoria); var sem=(m.frequencia==="semanal"); var feito=sem?feitoSemana(m.id):feitoHoje(m.id); var df=diasFeitos(m.id); var rot=rotuloDias(m); var naoHoje=(!sem&&!valeHoje(m));
@@ -444,6 +444,10 @@ function Missoes(props){
           <div style=${{width:84}}><span className="label">Pontos</span><input className="input" type="number" value=${n.pontos} onChange=${function(e){setF("pontos",e.target.value);}}/></div>
         </div>
         <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${add}>${editIdM?"Salvar alterações":"Criar missão"}</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);setEditIdM(null);setN(vazio);}}>Cancelar</button></div>
+      </div>`:null}
+
+      ${(pai&&modsFilha.some(function(m){return m.privada;}))?html`<div style=${{display:"flex",gap:6,marginTop:14}}>
+        ${[["todas","Todas"],["familia","👀 Família"],["privadas","🔒 Só os pais"]].map(function(f){var on=(filtroVis===f[0]);return html`<button key=${f[0]} className=${"fchip"+(on?" on":"")} style=${{flex:1,padding:"7px 4px",fontSize:12}} onClick=${function(){setFiltroVis(f[0]);}}>${f[1]}</button>`;})}
       </div>`:null}
 
       ${modelos.length===0?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>🗺️</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>A jornada ainda não começou</div><div className="note" style=${{marginTop:4}}>${pai?"Toque em + Nova missão para criar a primeira.":"Peça aos pais para criar as missões."}</div></div>`
@@ -570,6 +574,229 @@ const SELECOES=[
 {c:"POR",n:"Portugal",b:"🇵🇹"},{c:"COD",n:"Congo DR",b:"🇨🇩"},{c:"UZB",n:"Uzbekistan",b:"🇺🇿"},{c:"COL",n:"Colombia",b:"🇨🇴"},
 {c:"ENG",n:"England",b:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},{c:"CRO",n:"Croatia",b:"🇭🇷"},{c:"GHA",n:"Ghana",b:"🇬🇭"},{c:"PAN",n:"Panama",b:"🇵🇦"}
 ];
+
+const MERCADO_BASE={
+  "🥦 Hortifruti":["Banana","Maçã","Laranja","Limão","Mamão","Uva","Morango","Abacaxi","Manga","Melancia","Tomate","Cebola","Alho","Batata","Cenoura","Abobrinha","Chuchu","Beterraba","Pimentão","Pepino","Alface","Couve","Brócolis","Cheiro-verde"],
+  "🥩 Açougue e proteínas":["Carne bovina","Carne moída","Bife","Frango","Peito de frango","Filé de frango","Linguiça","Carne suína","Peixe","Ovos","Hambúrguer"],
+  "🧀 Frios e laticínios":["Leite","Queijo","Presunto","Requeijão","Manteiga","Margarina","Iogurte","Creme de leite","Leite condensado","Muçarela","Queijo ralado"],
+  "🥐 Padaria e café":["Pão francês","Pão de forma","Pão de queijo","Biscoito","Torrada","Bolo","Café","Achocolatado","Cereal","Granola","Geleia"],
+  "🛒 Mercearia":["Arroz","Feijão","Macarrão","Farinha de trigo","Farinha de mandioca","Açúcar","Sal","Óleo","Azeite","Vinagre","Molho de tomate","Extrato de tomate","Milho","Ervilha","Atum","Sardinha","Temperos","Caldo","Chá"],
+  "❄️ Congelados":["Pizza","Lasanha","Batata congelada","Nuggets","Legumes congelados","Polpa de frutas","Sorvete"],
+  "🥤 Bebidas":["Água mineral","Água com gás","Refrigerante","Suco","Água de coco","Isotônico","Café em cápsula"],
+  "🧽 Limpeza":["Detergente","Esponja","Sabão em pó","Sabão líquido","Amaciante","Água sanitária","Desinfetante","Multiuso","Álcool","Limpa-vidro","Saco de lixo","Papel-toalha","Pano de limpeza"],
+  "🧴 Higiene":["Papel higiênico","Sabonete","Shampoo","Condicionador","Creme dental","Escova de dentes","Fio dental","Desodorante","Absorvente","Algodão","Cotonete","Protetor solar"],
+  "🐾 Pets":["Ração","Petiscos","Tapete higiênico","Shampoo pet","Sacos de passeio"],
+  "🔧 Utilidades":["Papel-alumínio","Filme plástico","Guardanapo","Filtro de café","Palito","Fósforo","Pilhas","Lâmpadas","Velas"]
+};
+const UNIDS=["un","pct","cx","kg","g","L","ml","dz","bdj"];
+
+function Mercado(props){
+  const toast=props.toast;
+  const [tela,setTela]=useState("home");
+  const [listas,setListas]=useState([]),[itens,setItens]=useState([]),[ativaId,setAtivaId]=useState(null);
+  const [novaAberto,setNovaAberto]=useState(false),[nova,setNova]=useState({nome:"",mercado:"",orcamento:"",data:hojeLocal()});
+  const [addAberto,setAddAberto]=useState(false),[busca,setBusca]=useState(""),[catAberta,setCatAberta]=useState("");
+  const [ordem,setOrdem]=useState("categoria"),[lendo,setLendo]=useState(false),[resumo,setResumo]=useState(null);
+
+  const carregar=async function(){
+    const a=await sb.from("mercado_listas").select("*").order("criado_em",{ascending:false}); setListas(a.data||[]);
+    const b=await sb.from("mercado_itens").select("*").order("criado_em"); setItens(b.data||[]);
+  };
+  useEffect(function(){carregar();const ch=sb.channel("merc").on("postgres_changes",{event:"*",schema:"public",table:"mercado_listas"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"mercado_itens"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
+
+  const fmtR=function(v){return "R$ "+(Math.round(Number(v||0)*100)/100).toFixed(2).replace(".",",");};
+  const lista=listas.find(function(l){return l.id===ativaId;});
+  const itensL=itens.filter(function(i){return i.lista_id===ativaId;});
+  const catDe=function(nome){var achou="🛒 Mercearia";Object.keys(MERCADO_BASE).forEach(function(c){if(MERCADO_BASE[c].indexOf(nome)>=0)achou=c;});return achou;};
+
+  async function criarLista(){ if(!nova.nome.trim()){toast("Dê um nome à lista.");return;}
+    const r=await sb.from("mercado_listas").insert({nome:nova.nome,mercado:nova.mercado,orcamento:Number(nova.orcamento)||0,data:nova.data,status:"preparando",total:0}).select().single();
+    if(r.error){toast(r.error.message);return;} setNova({nome:"",mercado:"",orcamento:"",data:hojeLocal()}); setNovaAberto(false); setAtivaId(r.data.id); setTela("lista"); carregar();
+  }
+  async function addItem(nome,cat){ if(!ativaId)return; if(itensL.some(function(i){return i.nome.toLowerCase()===nome.toLowerCase();})){toast(nome+" já está na lista.");return;}
+    const r=await sb.from("mercado_itens").insert({lista_id:ativaId,nome:nome,categoria:cat||catDe(nome),qtd:1,unidade:"un",preco:null,comprado:false}); if(r.error)toast(r.error.message); else carregar();
+  }
+  async function addManual(){ if(!busca.trim())return; await addItem(busca.trim(),catDe(busca.trim())); setBusca(""); }
+  async function updItem(id,campo,val){ var r=await sb.from("mercado_itens").update(campo).eq("id",id); if(r.error)toast(r.error.message); else carregar(); }
+  async function delItem(id){ await sb.from("mercado_itens").delete().eq("id",id); carregar(); }
+  async function delLista(id){ await sb.from("mercado_itens").delete().eq("lista_id",id); await sb.from("mercado_listas").delete().eq("id",id); if(ativaId===id){setAtivaId(null);setTela("home");} carregar(); }
+  async function setStatus(st){ if(!lista)return; await sb.from("mercado_listas").update({status:st}).eq("id",lista.id); carregar(); }
+
+  const totalComprado=function(its){var t=0;its.forEach(function(i){if(i.comprado&&i.preco)t+=Number(i.preco)*Number(i.qtd||1);});return t;};
+  const totalG=totalComprado(itensL);
+  const orc=lista?Number(lista.orcamento||0):0;
+  const compradosN=itensL.filter(function(i){return i.comprado;}).length;
+
+  async function finalizar(){ if(!lista)return; await sb.from("mercado_listas").update({status:"concluida",total:totalG,data:hojeLocal()}).eq("id",lista.id); setResumo({nome:lista.nome,mercado:lista.mercado,orc:orc,gasto:totalG,itens:compradosN,tot:itensL.length}); carregar(); }
+
+  async function prepImg(file){const bmp=await createImageBitmap(file);const max=2000;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.9);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
+  async function lerCupom(e){ const file=e.target.files&&e.target.files[0]; if(!file||!lista)return; setLendo(true);
+    try{ const img=await prepImg(file); const r=await sb.functions.invoke("ler-cupom",{body:{imagem:img.base64,mediaType:img.mediaType}}); if(r.error)throw r.error; const d=r.data||{}; if(d.error)throw new Error(d.error);
+      var upd={}; if(d.total)upd.total=Number(d.total); if(d.mercado&&!lista.mercado)upd.mercado=d.mercado; upd.status="concluida"; upd.data=hojeLocal();
+      await sb.from("mercado_listas").update(upd).eq("id",lista.id);
+      setResumo({nome:lista.nome,mercado:d.mercado||lista.mercado,orc:orc,gasto:d.total?Number(d.total):totalG,itens:compradosN,tot:itensL.length,nf:true}); carregar();
+    }catch(err){ var em=String((err&&err.message)||err||""); if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ler-cupom não foi encontrada no Supabase. Faça o deploy dela.");}else{toast("Não consegui ler o cupom: "+em.slice(0,90));} }
+    finally{setLendo(false);e.target.value="";}
+  }
+
+  function ordenar(its){ var a=its.slice();
+    if(ordem==="categoria")a.sort(function(x,y){return (x.categoria||"").localeCompare(y.categoria||"")||(x.nome||"").localeCompare(y.nome||"");});
+    else if(ordem==="pendentes")a.sort(function(x,y){return (x.comprado?1:0)-(y.comprado?1:0);});
+    return a;
+  }
+
+  // ---------- RESUMO PÓS-COMPRA ----------
+  if(resumo){ var dif=resumo.gasto-resumo.orc; var estourou=resumo.orc>0&&dif>0;
+    return html`<div className="wrap">
+      <div className="eyebrow">🛒 Compra concluída</div>
+      <div className="h1">${resumo.nome}</div>
+      <div className="card" style=${{padding:20,marginTop:16,textAlign:"center"}}>
+        <div style=${{fontSize:34}}>${estourou?"😬":"🎉"}</div>
+        <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:30,marginTop:4}}>${fmtR(resumo.gasto)}</div>
+        <div className="note">${resumo.mercado||"Compra"} · ${resumo.itens}/${resumo.tot} itens${resumo.nf?" · via cupom 🧾":""}</div>
+        ${resumo.orc>0?html`<div style=${{marginTop:12,padding:"10px 12px",borderRadius:12,background:estourou?COR.meninasBg:COR.paisBg,color:estourou?COR.meninas:COR.pais,fontWeight:600,fontSize:13.5}}>
+          Orçamento ${fmtR(resumo.orc)} · ${estourou?("estourou "+fmtR(dif)):("sobrou "+fmtR(-dif))}
+        </div>`:null}
+      </div>
+      <button className="btn btn-primary" style=${{width:"100%",marginTop:14}} onClick=${function(){setResumo(null);setAtivaId(null);setTela("home");}}>Voltar ao início</button>
+    </div>`;
+  }
+
+  // ---------- MODO COMPRA ----------
+  if(tela==="comprar"&&lista){ var pct=orc?Math.min(totalG/orc*100,100):0; var estourou2=orc>0&&totalG>orc;
+    return html`<div className="wrap">
+      <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){setTela("lista");}}>← Voltar à lista</button>
+      <div className="h1" style=${{marginTop:10,fontSize:26}}>🛒 ${lista.nome}</div>
+      <div className="card" style=${{padding:14,marginTop:12,position:"sticky",top:8,zIndex:5}}>
+        <div style=${{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+          <span style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:24,color:estourou2?COR.meninas:COR.pais}}>${fmtR(totalG)}</span>
+          <span className="note">${orc?("de "+fmtR(orc)):"sem orçamento"} · ${compradosN}/${itensL.length}</span>
+        </div>
+        ${orc?html`<div style=${{height:8,background:"#F0EBE3",borderRadius:6,overflow:"hidden",marginTop:8}}><div style=${{width:pct+"%",height:"100%",borderRadius:6,background:estourou2?COR.meninas:pct>85?"#C99A2E":COR.pais}}></div></div>`:null}
+        ${estourou2?html`<div className="note" style=${{color:COR.meninas,fontWeight:700,marginTop:6}}>⚠️ Orçamento estourado em ${fmtR(totalG-orc)}</div>`:null}
+      </div>
+      <div style=${{display:"flex",gap:7,marginTop:12}}>
+        ${[["categoria","Por categoria"],["pendentes","Pendentes 1º"]].map(function(o){return html`<button key=${o[0]} className=${"fchip"+(ordem===o[0]?" on":"")} style=${{flex:1,fontSize:12}} onClick=${function(){setOrdem(o[0]);}}>${o[1]}</button>`;})}
+      </div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
+        ${ordenar(itensL).map(function(i){return html`<div key=${i.id} className="card" style=${{padding:"11px 13px",opacity:i.comprado?0.6:1,borderLeft:"5px solid "+(i.comprado?COR.pais:"#E4D9CC")}}>
+          <div style=${{display:"flex",alignItems:"center",gap:10}}>
+            <button onClick=${function(){updItem(i.id,{comprado:!i.comprado});}} style=${{width:30,height:30,borderRadius:9,border:"2px solid "+(i.comprado?COR.pais:"#D8CDBF"),background:i.comprado?COR.pais:"#fff",color:"#fff",fontSize:16,cursor:"pointer",flexShrink:0}}>${i.comprado?"✓":""}</button>
+            <div style=${{flex:1,minWidth:0}}>
+              <div style=${{fontWeight:700,fontSize:14.5,textDecoration:i.comprado?"line-through":"none"}}>${i.nome}</div>
+              <div className="note" style=${{fontSize:11.5}}>${i.categoria}</div>
+            </div>
+            <div style=${{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+              <input type="number" inputMode="numeric" value=${i.qtd} onChange=${function(e){updItem(i.id,{qtd:Number(e.target.value)||1});}} style=${{width:42,padding:"7px 4px",textAlign:"center",border:"1px solid #E4D9CC",borderRadius:8,fontSize:13}}/>
+              <span className="note" style=${{fontSize:11}}>${i.unidade}</span>
+            </div>
+          </div>
+          ${i.comprado?html`<div style=${{display:"flex",alignItems:"center",gap:8,marginTop:9}}>
+            <span className="note" style=${{fontSize:12}}>R$</span>
+            <input type="number" step="0.01" inputMode="decimal" placeholder="preço unitário" value=${i.preco==null?"":i.preco} onChange=${function(e){updItem(i.id,{preco:e.target.value===""?null:Number(e.target.value)});}} style=${{flex:1,padding:"8px 10px",border:"1px solid #E4D9CC",borderRadius:9,fontSize:13.5}}/>
+            <span style=${{fontWeight:700,fontSize:13,color:COR.pais}}>${i.preco?fmtR(Number(i.preco)*Number(i.qtd||1)):""}</span>
+          </div>`:null}
+        </div>`;})}
+      </div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:16,marginBottom:10}}>
+        <button className="btn btn-ghost" disabled=${lendo} onClick=${function(){document.getElementById("cupomFile").click();}}>${lendo?"Lendo cupom…":"🧾 Ler cupom (foto) e finalizar"}</button>
+        <input id="cupomFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${lerCupom}/>
+        <button className="btn btn-primary" onClick=${finalizar}>✓ Finalizar compra · ${fmtR(totalG)}</button>
+      </div>
+    </div>`;
+  }
+
+  // ---------- DETALHE DA LISTA ----------
+  if(tela==="lista"&&lista){ var catsPresentes={}; itensL.forEach(function(i){var c=i.categoria||"🛒 Mercearia";if(!catsPresentes[c])catsPresentes[c]=[];catsPresentes[c].push(i);});
+    return html`<div className="wrap">
+      <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){setTela("home");setAtivaId(null);}}>← Minhas listas</button>
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginTop:10}}>
+        <div><div className="h1" style=${{fontSize:26}}>${lista.nome}</div><div className="note">${lista.mercado||"Mercado a definir"}${orc?(" · orçamento "+fmtR(orc)):""}</div></div>
+        <button className="btn btn-ghost" style=${{padding:"6px 10px",fontSize:12,flexShrink:0}} onClick=${function(){if(confirm("Apagar a lista "+lista.nome+"?"))delLista(lista.id);}}>🗑</button>
+      </div>
+
+      ${addAberto?html`<div className="card" style=${{padding:14,marginTop:14}}>
+        <div style=${{display:"flex",gap:8,marginBottom:10}}>
+          <input value=${busca} onChange=${function(e){setBusca(e.target.value);}} placeholder="Buscar ou digitar produto" style=${{flex:1,padding:"10px 12px",border:"1px solid #E4D9CC",borderRadius:10,fontSize:14}}/>
+          <button className="btn btn-primary" style=${{padding:"8px 12px"}} onClick=${addManual}>+</button>
+        </div>
+        <div style=${{maxHeight:280,overflowY:"auto"}}>${Object.keys(MERCADO_BASE).map(function(cat){var itensCat=MERCADO_BASE[cat].filter(function(p){return !busca||p.toLowerCase().indexOf(busca.toLowerCase())>=0;});if(!itensCat.length)return null;var aberta=(catAberta===cat||busca);return html`<div key=${cat} style=${{marginBottom:6}}>
+          <button onClick=${function(){setCatAberta(catAberta===cat?"":cat);}} style=${{width:"100%",textAlign:"left",padding:"8px 4px",border:"none",background:"none",fontWeight:700,fontSize:13.5,cursor:"pointer"}}>${cat} ${aberta?"▾":"▸"}</button>
+          ${aberta?html`<div style=${{display:"flex",flexWrap:"wrap",gap:6,padding:"2px 2px 8px"}}>${itensCat.map(function(p){var jaTem=itensL.some(function(x){return x.nome===p;});return html`<button key=${p} disabled=${jaTem} onClick=${function(){addItem(p,cat);}} style=${{padding:"7px 11px",borderRadius:9,border:"1px solid "+(jaTem?COR.pais:"#E4D9CC"),background:jaTem?COR.paisBg:"#fff",color:jaTem?COR.pais:"#2A2233",fontSize:12.5,cursor:jaTem?"default":"pointer"}}>${jaTem?"✓ ":""}${p}</button>`;})}</div>`:null}
+        </div>`;})}</div>
+        <button className="btn btn-ghost" style=${{width:"100%",marginTop:8}} onClick=${function(){setAddAberto(false);setBusca("");setCatAberta("");}}>Fechar</button>
+      </div>`
+      :html`<button className="btn btn-primary" style=${{width:"100%",marginTop:14}} onClick=${function(){setAddAberto(true);}}>+ Adicionar produtos</button>`}
+
+      ${itensL.length===0?html`<div className="card" style=${{padding:22,textAlign:"center",marginTop:12}}><div style=${{fontSize:26}}>📝</div><div className="note" style=${{marginTop:6}}>Lista vazia. Toque em “Adicionar produtos”.</div></div>`
+      :html`<div style=${{marginTop:14}}>
+        <div className="note" style=${{marginBottom:8}}>${itensL.length} ${itensL.length===1?"item":"itens"}</div>
+        ${Object.keys(catsPresentes).sort().map(function(cat){return html`<div key=${cat} style=${{marginBottom:12}}>
+          <div className="catit"><span>${cat.split(" ")[0]}</span>${cat.split(" ").slice(1).join(" ")}</div>
+          <div style=${{display:"flex",flexDirection:"column",gap:6}}>${catsPresentes[cat].map(function(i){return html`<div key=${i.id} className="card" style=${{display:"flex",alignItems:"center",gap:9,padding:"9px 12px"}}>
+            <div style=${{flex:1,minWidth:0}}><span style=${{fontWeight:600,fontSize:14}}>${i.nome}</span></div>
+            <input type="number" inputMode="numeric" value=${i.qtd} onChange=${function(e){updItem(i.id,{qtd:Number(e.target.value)||1});}} style=${{width:40,padding:"6px 3px",textAlign:"center",border:"1px solid #E4D9CC",borderRadius:8,fontSize:13}}/>
+            <select value=${i.unidade} onChange=${function(e){updItem(i.id,{unidade:e.target.value});}} style=${{padding:"6px 4px",border:"1px solid #E4D9CC",borderRadius:8,fontSize:12}}>${UNIDS.map(function(u){return html`<option key=${u} value=${u}>${u}</option>`;})}</select>
+            <button onClick=${function(){delItem(i.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:16,cursor:"pointer",flexShrink:0}}>×</button>
+          </div>`;})}</div>
+        </div>`;})}
+        <button className="btn btn-primary" style=${{width:"100%",marginTop:8,padding:14,fontSize:16}} onClick=${function(){setStatus("comprando");setTela("comprar");}}>🛍️ Iniciar compra</button>
+      </div>`}
+    </div>`;
+  }
+
+  // ---------- HOME ----------
+  const emAndamento=listas.filter(function(l){return l.status!=="concluida"&&l.status!=="cancelada";});
+  const concluidas=listas.filter(function(l){return l.status==="concluida";});
+  const ultima=concluidas[0];
+  const freq={}; itens.forEach(function(i){ if(i.comprado){freq[i.nome]=(freq[i.nome]||0)+1;} });
+  const maisComprados=Object.keys(freq).map(function(k){return {nome:k,n:freq[k]};}).sort(function(a,b){return b.n-a.n;}).slice(0,8);
+  const stLabel={preparando:"Em preparação",pronta:"Pronta",comprando:"Comprando",concluida:"Concluída",cancelada:"Cancelada"};
+
+  return html`<div className="wrap">
+    <div className="eyebrow">🛒 Supermercado</div>
+    <div className="h1">Compras da família</div>
+
+    ${novaAberto?html`<div className="card" style=${{padding:16,marginTop:14,display:"flex",flexDirection:"column",gap:11}}>
+      <div><span className="label">Nome da lista</span><input className="input" value=${nova.nome} onChange=${function(e){setNova(Object.assign({},nova,{nome:e.target.value}));}} placeholder="Ex: Compra do mês, Churrasco"/></div>
+      <div style=${{display:"flex",gap:10}}>
+        <div style=${{flex:1}}><span className="label">Mercado</span><input className="input" value=${nova.mercado} onChange=${function(e){setNova(Object.assign({},nova,{mercado:e.target.value}));}} placeholder="Opcional"/></div>
+        <div style=${{width:120}}><span className="label">Orçamento</span><input className="input" type="number" inputMode="decimal" value=${nova.orcamento} onChange=${function(e){setNova(Object.assign({},nova,{orcamento:e.target.value}));}} placeholder="R$"/></div>
+      </div>
+      <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${criarLista}>Criar lista</button><button className="btn btn-ghost" onClick=${function(){setNovaAberto(false);}}>Cancelar</button></div>
+    </div>`
+    :html`<button className="btn btn-primary" style=${{width:"100%",marginTop:14,padding:15,fontSize:16}} onClick=${function(){setNovaAberto(true);}}>+ Nova lista de compras</button>`}
+
+    ${emAndamento.length>0?html`<div style=${{marginTop:18}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Em andamento</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:9}}>${emAndamento.map(function(l){var its=itens.filter(function(i){return i.lista_id===l.id;});var comp=its.filter(function(i){return i.comprado;}).length;return html`<button key=${l.id} className="card" onClick=${function(){setAtivaId(l.id);setTela(l.status==="comprando"?"comprar":"lista");}} style=${{border:"none",cursor:"pointer",textAlign:"left",padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+        <div style=${{minWidth:0}}><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",fontSize:16}}>${l.nome}</div><div className="note" style=${{fontSize:12}}>${l.mercado||"Mercado a definir"} · ${its.length} itens${l.status==="comprando"?(" · "+comp+"/"+its.length+" no carrinho"):""}</div></div>
+        <span className="chip" style=${{flexShrink:0,background:l.status==="comprando"?COR.paisBg:"#F0EBE3",color:l.status==="comprando"?COR.pais:"#857A8C"}}>${stLabel[l.status]||l.status}</span>
+      </button>`;})}</div>
+    </div>`:null}
+
+    ${ultima?html`<div style=${{marginTop:18}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Última compra</div>
+      <div className="card" style=${{padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style=${{fontWeight:700,fontSize:15}}>${ultima.nome}</div><div className="note" style=${{fontSize:12}}>${ultima.mercado||""} · ${fCurta(ultima.data)}</div></div>
+        <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:18,color:COR.pais}}>${fmtR(ultima.total)}</div>
+      </div>
+    </div>`:null}
+
+    ${maisComprados.length>0?html`<div style=${{marginTop:18}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Mais comprados</div>
+      <div style=${{display:"flex",flexWrap:"wrap",gap:7}}>${maisComprados.map(function(p){return html`<div key=${p.nome} className="chip" style=${{background:"#F0EBE3",color:"#2A2233"}}>${p.nome} · ${p.n}×</div>`;})}</div>
+    </div>`:null}
+
+    ${concluidas.length>0?html`<div style=${{marginTop:18,marginBottom:10}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Histórico</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:7}}>${concluidas.slice(0,10).map(function(l){return html`<div key=${l.id} className="card" style=${{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px"}}>
+        <div style=${{minWidth:0}}><div style=${{fontWeight:600,fontSize:14}}>${l.nome}</div><div className="note" style=${{fontSize:11.5}}>${l.mercado||""} · ${fCurta(l.data)}</div></div>
+        <div style=${{display:"flex",alignItems:"center",gap:8,flexShrink:0}}><span style=${{fontWeight:700,fontSize:14,color:COR.pais}}>${fmtR(l.total)}</span><button onClick=${function(){if(confirm("Apagar do histórico?"))delLista(l.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer"}}>×</button></div>
+      </div>`;})}</div>
+    </div>`:null}
+  </div>`;
+}
 
 function Carteira(props){
   const toast=props.toast, papel=props.papel, nome=props.nome;
@@ -956,12 +1183,13 @@ function App(){
         <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
-      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:aba==="carteira"?html`<${Carteira} papel=${papel} nome=${nome} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
+      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:aba==="carteira"?html`<${Carteira} papel=${papel} nome=${nome} toast=${toast}/>`:aba==="mercado"?html`<${Mercado} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
       <div className="tabs">
         <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
         <button className=${"tab"+(aba==="missoes"?" on":"")} onClick=${function(){setAba("missoes");}}>✅<br/>Missões</button>
         <button className=${"tab"+(aba==="carteira"?" on":"")} onClick=${function(){setAba("carteira");}}>💰<br/>Carteira</button>
+        ${(papel==="pai"||papel==="mae")?html`<button className=${"tab"+(aba==="mercado"?" on":"")} onClick=${function(){setAba("mercado");}}>🛒<br/>Mercado</button>`:null}
         ${albumAtivo?html`<button className=${"tab"+(aba==="album"?" on":"")} onClick=${function(){setAba("album");}}>⚽<br/>Álbum</button>`:null}
         ${(papel==="pai"||papel==="mae")?html`<button className=${"tab"+(aba==="painel"?" on":"")} onClick=${function(){setAba("painel");}}>📊<br/>Painel</button>`:null}
       </div>
