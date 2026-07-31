@@ -537,6 +537,15 @@ function Inicio(props){
             <div className="pt-desc">Entradas e gastos</div>
           </div>
         </button>
+        ${(props.papel==="pai"||props.papel==="mae")?html`<button className="capa-portal anim" style=${{animationDelay:".33s",background:"linear-gradient(150deg,#2E8B83,#1f6660)"}} onClick=${function(){props.ir("mercado");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">🛒</div>
+            <div className="pt-tit">Mercado</div>
+            <div className="pt-desc">Lista e compras</div>
+          </div>
+        </button>`:null}
         ${props.albumAtivo?html`<button className="capa-portal anim" style=${{animationDelay:".3s",background:"linear-gradient(150deg,#C99A2E,#a87e1f)"}} onClick=${function(){props.ir("album");}}>
           <div className="pt-bolha"></div>
           <div className="pt-seta">→</div>
