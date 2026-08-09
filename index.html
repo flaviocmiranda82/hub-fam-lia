@@ -163,7 +163,7 @@ function baixarICS(ev){
 
 function Agenda(props){
   const toast=props.toast;
-  const vazio={titulo:"",data:"",data_fim:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:"",tipo:"evento",pai_id:null,repetir:"nao",ocorrencias:8};
+  const vazio={titulo:"",data:"",data_fim:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:"",tipo:"evento",pai_id:null,repetir:"nao",dias_sem:[],ate:""};
   const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio),[lendo,setLendo]=useState(false),[editId,setEditId]=useState(null);
   const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});var evs=(r.data||[]).slice().sort(function(a,b){var da=(a.data||"")+" "+(a.inicio||"99:99");var db=(b.data||"")+" "+(b.inicio||"99:99");return da<db?-1:da>db?1:0;});setEventos(evs);};
   useEffect(function(){carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
@@ -176,23 +176,32 @@ function Agenda(props){
     if(n.tipo==="viagem"){ if(!n.data_fim){toast("Escolha a data de fim do período.");return;} if(n.data_fim<n.data){toast("O fim não pode ser antes do início.");return;} }
     var p=Object.assign({},n);
     if(p.tipo!=="viagem"){p.data_fim=null;} else {p.inicio="";p.fim="";}
-    delete p.repetir; delete p.ocorrencias;
+    delete p.repetir; delete p.dias_sem; delete p.ate;
     if(!editId && n.tipo!=="viagem" && n.repetir!=="nao" && !n.pai_id){
-      var passo=n.repetir==="diario"?1:n.repetir==="semanal"?7:n.repetir==="quinzenal"?14:30;
-      var qtd=Math.max(1,Math.min(Number(n.ocorrencias)||8,52));
+      if(!n.ate){toast("Escolha até qual data repetir.");return;}
+      if(n.ate<n.data){toast("A data final deve ser depois da inicial.");return;}
+      var fmtISO=function(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
       var serie="s"+Date.now()+Math.floor(Math.random()*1000);
-      var base=new Date(n.data+"T00:00:00"); var linhas=[];
-      for(var k=0;k<qtd;k++){ var d=new Date(base); if(n.repetir==="mensal")d.setMonth(d.getMonth()+k); else d.setDate(d.getDate()+k*passo);
-        var iso=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-        linhas.push(Object.assign({},p,{data:iso,serie_id:serie})); }
+      var ini=new Date(n.data+"T00:00:00"), fimD=new Date(n.ate+"T00:00:00"), linhas=[];
+      if(n.repetir==="semanal_dias"){
+        var alvos=(n.dias_sem&&n.dias_sem.length)?n.dias_sem.slice():[ini.getDay()];
+        var d=new Date(ini);
+        while(d<=fimD){ if(alvos.indexOf(d.getDay())>=0) linhas.push(Object.assign({},p,{data:fmtISO(d),serie_id:serie})); d.setDate(d.getDate()+1); }
+      } else {
+        var passo=n.repetir==="diario"?1:n.repetir==="quinzenal"?14:7; var d2=new Date(ini);
+        if(n.repetir==="mensal"){ while(d2<=fimD){ linhas.push(Object.assign({},p,{data:fmtISO(d2),serie_id:serie})); d2.setMonth(d2.getMonth()+1); } }
+        else { while(d2<=fimD){ linhas.push(Object.assign({},p,{data:fmtISO(d2),serie_id:serie})); d2.setDate(d2.getDate()+passo); } }
+      }
+      if(!linhas.length){toast("Nenhuma data gerada — confira os dias e o período.");return;}
+      if(linhas.length>200){toast("São muitas ocorrências (>200). Reduza o período.");return;}
       var r0=await sb.from("eventos").insert(linhas);
-      if(r0.error)toast(r0.error.message); else{setN(vazio);setAbrir(false);setEditId(null);carregar();toast("Série criada: "+qtd+" ocorrências 🔁");}
+      if(r0.error)toast(r0.error.message); else{setN(vazio);setAbrir(false);setEditId(null);carregar();toast("Série criada: "+linhas.length+" ocorrências 🔁");}
       return;
     }
     const r=editId?await sb.from("eventos").update(p).eq("id",editId):await sb.from("eventos").insert(p);
     if(r.error)toast(r.error.message); else{setN(vazio);setAbrir(false);setEditId(null);carregar();}
   }
-  function editar(ev){ setN({titulo:ev.titulo||"",data:ev.data||"",data_fim:ev.data_fim||"",inicio:ev.inicio||"",fim:ev.fim||"",local:ev.local||"",convidado:ev.convidado||"",festa_infantil:!!ev.festa_infantil,responsavel:ev.responsavel||"",tipo:ev.tipo||"evento",pai_id:ev.pai_id||null,repetir:"nao",ocorrencias:8}); setEditId(ev.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
+  function editar(ev){ setN({titulo:ev.titulo||"",data:ev.data||"",data_fim:ev.data_fim||"",inicio:ev.inicio||"",fim:ev.fim||"",local:ev.local||"",convidado:ev.convidado||"",festa_infantil:!!ev.festa_infantil,responsavel:ev.responsavel||"",tipo:ev.tipo||"evento",pai_id:ev.pai_id||null,repetir:"nao",dias_sem:[],ate:""}); setEditId(ev.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   function addFilho(ev){ setN(Object.assign({},vazio,{tipo:"evento",pai_id:ev.id,data:ev.data||"",festa_infantil:!!ev.festa_infantil})); setEditId(null); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   async function apagar(id){ await sb.from("eventos").delete().eq("id",id); carregar(); }
   const up=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
@@ -244,8 +253,9 @@ function Agenda(props){
                   <div style=${{flex:1}}><span className="label">Fim</span><input className="input" type="time" value=${n.fim} onChange=${function(e){up("fim",e.target.value);}}/></div>
                 </div>
                 ${!editId?html`<div style=${{marginTop:12}}><span className="label">Repetir</span>
-                  <div style=${{display:"flex",gap:6,flexWrap:"wrap"}}>${[["nao","Não repete"],["semanal","Toda semana"],["quinzenal","A cada 15 dias"],["mensal","Todo mês"],["diario","Todo dia"]].map(function(o){var on=(n.repetir===o[0]);return html`<button key=${o[0]} type="button" className=${"fchip"+(on?" on":"")} style=${{padding:"7px 11px",fontSize:12.5}} onClick=${function(){up("repetir",o[0]);}}>${o[1]}</button>`;})}</div>
-                  ${n.repetir!=="nao"?html`<div style=${{marginTop:9,display:"flex",alignItems:"center",gap:8}}><span className="note">Gerar</span><input className="input" type="number" inputMode="numeric" value=${n.ocorrencias} onChange=${function(e){up("ocorrencias",e.target.value);}} style=${{width:64,textAlign:"center"}}/><span className="note">próximas ocorrências</span></div>`:null}
+                  <div style=${{display:"flex",gap:6,flexWrap:"wrap"}}>${[["nao","Não repete"],["semanal_dias","Dias da semana"],["quinzenal","A cada 15 dias"],["mensal","Todo mês"],["diario","Todo dia"]].map(function(o){var on=(n.repetir===o[0]);return html`<button key=${o[0]} type="button" className=${"fchip"+(on?" on":"")} style=${{padding:"7px 11px",fontSize:12.5}} onClick=${function(){up("repetir",o[0]);}}>${o[1]}</button>`;})}</div>
+                  ${n.repetir==="semanal_dias"?html`<div style=${{marginTop:10}}><span className="note">Em quais dias</span><div style=${{display:"flex",gap:5,flexWrap:"wrap",marginTop:5}}>${[1,2,3,4,5,6,0].map(function(d){var on=(n.dias_sem.indexOf(d)>=0);return html`<button key=${d} type="button" className=${"fchip"+(on?" on":"")} style=${{padding:"7px 0",minWidth:44,textAlign:"center"}} onClick=${function(){var arr=n.dias_sem.slice();var i=arr.indexOf(d);if(i>=0)arr.splice(i,1);else arr.push(d);up("dias_sem",arr);}}>${DIAS_ABREV[d]}</button>`;})}</div></div>`:null}
+                  ${n.repetir!=="nao"?html`<div style=${{marginTop:10}}><span className="label">Repetir até</span><input className="input" type="date" value=${n.ate} onChange=${function(e){up("ate",e.target.value);}}/></div>`:null}
                 </div>`:null}
               </div>`}
             <div><span className="label">${n.tipo==="viagem"?"Destino":"Local"}</span><input className="input" value=${n.local} onChange=${function(e){up("local",e.target.value);}}/></div>
