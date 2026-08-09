@@ -357,7 +357,7 @@ function Missoes(props){
   async function apagarMod(id){ await sb.from("missoes_modelo").delete().eq("id",id); carregar(); }
   async function toggleRec(m){ const r=await sb.from("missoes_modelo").update({recorrente:!m.recorrente,semana:semana}).eq("id",m.id); if(r.error)toast(r.error.message); else carregar(); }
   function comemorar(){ setFesta(true); toast("🎉 Missão cumprida!"); setTimeout(function(){setFesta(false);},1500); }
-  async function concluir(m,emoji){ const sem=(m.frequencia==="semanal"); const ja=checks.find(function(cc){return cc.modelo_id===m.id && (sem?true:cc.dia===hoje);}); setAvaliando(null); if(ja)return; const r=await sb.from("checkins").insert({modelo_id:m.id,responsavel:m.responsavel,semana:semana,dia:hoje,status:"feita",avaliacao:emoji}); if(r.error)toast(r.error.message); else{comemorar();carregar();} }
+  async function concluir(m,diaAlvo){ const sem=(m.frequencia==="semanal"); const dd=diaAlvo||hoje; const ja=checks.find(function(cc){return cc.modelo_id===m.id && (sem?true:cc.dia===dd);}); if(ja)return; const r=await sb.from("checkins").insert({modelo_id:m.id,responsavel:m.responsavel,semana:semana,dia:dd,status:"feita"}); if(r.error)toast(r.error.message); else{comemorar();carregar();} }
   async function desfazer(m){ const sem=(m.frequencia==="semanal"); if(sem)await sb.from("checkins").delete().eq("modelo_id",m.id).eq("semana",semana); else await sb.from("checkins").delete().eq("modelo_id",m.id).eq("dia",hoje); carregar(); }
   async function salvarValor(){ const r=await sb.from("metas").upsert({semana:semana,valor:Number(valorForm),meta_pontos:(meta&&meta.meta_pontos)?meta.meta_pontos:100}); if(r.error)toast(r.error.message); else{setAbrirVal(false);carregarMeta();} }
 
@@ -367,6 +367,10 @@ function Missoes(props){
   const checksDe=function(id){return checks.filter(function(cc){return cc.modelo_id===id;});};
   const diasFeitos=function(id){var s={};checksDe(id).forEach(function(cc){s[cc.dia]=1;});return Object.keys(s).length;};
   const feitoHoje=function(id){return checks.some(function(cc){return cc.modelo_id===id && cc.dia===hoje;});};
+  const segSemana=function(){var d=new Date(hoje+"T00:00:00");var off=(d.getDay()+6)%7;d.setDate(d.getDate()-off);return d;};
+  const dataDoDia=function(dw){var base=segSemana();var ord=(dw+6)%7;var d=new Date(base);d.setDate(base.getDate()+ord);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+  const feitoNoDia=function(id,iso){return checks.some(function(cc){return cc.modelo_id===id && cc.dia===iso;});};
+  async function toggleDiaCheck(m,dw){ var iso=dataDoDia(dw); if(iso>hoje){toast("Esse dia ainda não chegou.");return;} var ja=checks.find(function(cc){return cc.modelo_id===m.id && cc.dia===iso;}); if(ja){ await sb.from("checkins").delete().eq("modelo_id",m.id).eq("dia",iso); } else { var r=await sb.from("checkins").insert({modelo_id:m.id,responsavel:m.responsavel,semana:semana,dia:iso,status:"feita"}); if(r.error){toast(r.error.message);return;} if(iso===hoje)comemorar(); } carregar(); }
   const feitoSemana=function(id){return checks.some(function(cc){return cc.modelo_id===id;});};
   const avalsDe=function(id){return checks.filter(function(cc){return cc.modelo_id===id&&cc.avaliacao;}).sort(function(a,b){return (a.dia||"")<(b.dia||"")?-1:1;}).map(function(cc){return cc.avaliacao;});};
   const mediaAval=function(id){var a=avalsDe(id);if(!a.length)return null;var s=0;a.forEach(function(e){s+=AVAL_VAL[e]||3;});return s/a.length;};
@@ -387,7 +391,7 @@ function Missoes(props){
 
   function cardMod(m){
     var info=catInfo(m.categoria); var sem=(m.frequencia==="semanal"); var feito=sem?feitoSemana(m.id):feitoHoje(m.id); var df=diasFeitos(m.id); var rot=rotuloDias(m); var naoHoje=(!sem&&!valeHoje(m));
-    return html`<div className="card" key=${m.id} style=${{display:"flex",overflow:"hidden",padding:0,opacity:naoHoje?0.62:1}}>
+    return html`<div className="card" key=${m.id} style=${{display:"flex",overflow:"hidden",padding:0}}>
       <div style=${{width:7,background:info.cor}}></div>
       <div style=${{padding:"12px 13px",flex:1}}>
         <div style=${{display:"flex",justifyContent:"space-between",gap:8}}>
@@ -401,12 +405,11 @@ function Missoes(props){
             ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 10px",fontSize:14}} onClick=${function(){apagarMod(m.id);}}>×</button>`:null}
           </div>
         </div>
-        ${naoHoje?html`<div className="note" style=${{marginTop:10,fontWeight:600}}>📅 Aparece ${rot?("em "+rot):"em outro dia"}</div>`
-          :(avaliando===m.id?html`<div style=${{marginTop:11}}><div className="note" style=${{marginBottom:6}}>Como foi essa missão?</div><div style=${{display:"flex",gap:4,justifyContent:"space-between"}}>${AVAL.map(function(e){return html`<button key=${e} className="emoji-aval" onClick=${function(){concluir(m,e);}}>${e}</button>`;})}</div></div>`
-          :html`<div style=${{marginTop:11}}>
-            ${feito?html`<button className="btn btn-ghost" style=${{width:"100%",color:COR.pais,borderColor:COR.pais}} onClick=${function(){desfazer(m);}}>✓ ${sem?"Feita esta semana":"Feito hoje"} · desfazer</button>`
-              :html`<button className="btn btn-primary" style=${{width:"100%"}} onClick=${function(){setAvaliando(m.id);}}>Concluir ${sem?"agora":"hoje"}</button>`}
-          </div>`)}
+        ${sem?html`<div style=${{marginTop:11}}>
+            ${feito?html`<button className="btn btn-ghost" style=${{width:"100%",color:COR.pais,borderColor:COR.pais}} onClick=${function(){desfazer(m);}}>✓ Feita esta semana · desfazer</button>`
+              :html`<button className="btn btn-primary" style=${{width:"100%"}} onClick=${function(){concluir(m);}}>Concluir agora</button>`}
+          </div>`
+        :html`<div style=${{marginTop:11,display:"flex",gap:5,flexWrap:"wrap"}}>${diasArr(m).map(function(dw){var iso=dataDoDia(dw);var f=feitoNoDia(m.id,iso);var fut=iso>hoje;var eh=iso===hoje;return html`<button key=${dw} disabled=${fut} onClick=${function(){toggleDiaCheck(m,dw);}} style=${{flex:"1 1 0",minWidth:40,padding:"9px 0",borderRadius:9,border:eh?"2px solid #2A2233":("1px solid "+(f?COR.pais:"#E4D9CC")),background:f?COR.paisBg:"#fff",color:f?COR.pais:(fut?"#C9BED0":"#857A8C"),fontWeight:700,fontSize:11.5,cursor:fut?"default":"pointer"}}>${DIAS_ABREV[dw]}${f?" ✓":""}</button>`;})}</div>`}
       </div>
     </div>`;
   }
@@ -1071,7 +1074,18 @@ function Painel(props){
   const porMod={}; cksF.forEach(function(cc){ if(!porMod[cc.modelo_id])porMod[cc.modelo_id]=[]; porMod[cc.modelo_id].push(cc); });
 
   // 1) Satisfação por missão (todo o histórico)
-  const satis=modsF.map(function(m){ var avals=(porMod[m.id]||[]).filter(function(cc){return cc.avaliacao;}).sort(function(a,b){return (a.dia||"")<(b.dia||"")?-1:1;}).map(function(cc){return cc.avaliacao;}); if(!avals.length)return null; var s=0; avals.forEach(function(e){s+=AVAL_VAL[e]||3;}); return {m:m,avg:s/avals.length,avals:avals}; }).filter(function(x){return x;}).sort(function(a,b){return a.avg-b.avg;});
+  const execMis=modsF.map(function(m){
+    var cks=(porMod[m.id]||[]);
+    var feitasN, possiveisN;
+    if(m.frequencia==="semanal"){ var semsF={}; cks.forEach(function(cc){semsF[cc.semana]=1;}); feitasN=Object.keys(semsF).length; var semsTot={}; cks.forEach(function(cc){semsTot[cc.semana]=1;}); possiveisN=Math.max(feitasN,1); }
+    else { var diasSet={}; cks.forEach(function(cc){diasSet[cc.dia]=1;}); feitasN=Object.keys(diasSet).length;
+      var semanasAtivas={}; cks.forEach(function(cc){if(cc.semana)semanasAtivas[cc.semana]=1;}); semanasAtivas[semanaAtual()]=1;
+      var validPorSem=(m.dias?String(m.dias).split(",").length:7);
+      possiveisN=Math.max(Object.keys(semanasAtivas).length*validPorSem,feitasN,1);
+    }
+    return {m:m,feitas:feitasN,poss:possiveisN,pct:possiveisN?feitasN/possiveisN:0};
+  }).sort(function(a,b){return a.pct-b.pct;});
+  constsatis=modsF.map(function(m){ var avals=(porMod[m.id]||[]).filter(function(cc){return cc.avaliacao;}).sort(function(a,b){return (a.dia||"")<(b.dia||"")?-1:1;}).map(function(cc){return cc.avaliacao;}); if(!avals.length)return null; var s=0; avals.forEach(function(e){s+=AVAL_VAL[e]||3;}); return {m:m,avg:s/avals.length,avals:avals}; }).filter(function(x){return x;}).sort(function(a,b){return a.avg-b.avg;});
 
   // 2) Atingimento diário — últimos 14 dias
   const dias14=[]; for(var i=13;i>=0;i--){ var d=new Date(); d.setDate(d.getDate()-i); var iso=dISO(d), ds=d.getDay(); var validas=modsF.filter(function(m){return m.frequencia!=="semanal"&&dArr(m).indexOf(ds)>=0;}); var feitas=validas.filter(function(m){return (porMod[m.id]||[]).some(function(cc){return cc.dia===iso;});}).length; dias14.push({d:d,iso:iso,total:validas.length,feitas:feitas,pct:validas.length?feitas/validas.length:null}); }
@@ -1086,7 +1100,7 @@ function Painel(props){
   const meses=Object.keys(porMes).sort().map(function(k){var v=porMes[k];return {label:MESES[v.mes]+"/"+String(v.ano).slice(2),pct:v.soma/v.n};});
 
   const temDados=cksF.length>0;
-  const barCor=function(p){return p>=0.8?COR.pais:p>=0.5?"#C99A2E":COR.meninas;};
+  const barCor=function(p){var v=p*100;return v>115?"#2B6CB0":v>=100?"#2F9E44":v>=81?"#E8853A":"#C64B33";};
 
   return html`
     <div className="wrap">
@@ -1108,15 +1122,15 @@ function Painel(props){
       ${visao!=="missoes"?null:!temDados?html`<div className="card" style=${{padding:24,textAlign:"center",marginTop:16}}><div style=${{fontSize:30}}>📊</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:6}}>Ainda sem dados</div><div className="note" style=${{marginTop:4}}>Os gráficos ganham vida conforme ${filha||"a família"} conclui missões.</div></div>`:html`<div>
 
       <div className="card" style=${{padding:16,marginTop:14}}>
-        <div className="eyebrow" style=${{marginBottom:2}}>🌡️ Satisfação por missão</div>
-        <div className="note" style=${{marginBottom:12}}>Todo o histórico · da mais difícil pra mais gostosa</div>
-        ${satis.length===0?html`<div className="note">Sem avaliações ainda.</div>`
-          :html`<div style=${{display:"flex",flexDirection:"column",gap:9}}>${satis.map(function(x){return html`<div key=${x.m.id}>
+        <div className="eyebrow" style=${{marginBottom:2}}>🎯 Execução por missão</div>
+        <div className="note" style=${{marginBottom:12}}>Feitas × possíveis · da mais baixa pra mais alta</div>
+        ${execMis.length===0?html`<div className="note">Sem dados ainda.</div>`
+          :html`<div style=${{display:"flex",flexDirection:"column",gap:9}}>${execMis.map(function(x){return html`<div key=${x.m.id}>
             <div style=${{display:"flex",justifyContent:"space-between",gap:8,marginBottom:3}}>
-              <span style=${{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${emojiMedia(x.avg)} ${x.m.titulo}</span>
-              <span className="note" style=${{flexShrink:0}}>${(Math.round(x.avg*10)/10).toFixed(1)} · ${x.avals.length}×</span>
+              <span style=${{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${x.m.titulo}</span>
+              <span className="note" style=${{flexShrink:0}}>${x.feitas}/${x.poss} · ${Math.round(x.pct*100)}%</span>
             </div>
-            <div style=${{height:8,background:"#F0EBE3",borderRadius:6,overflow:"hidden"}}><div style=${{width:(x.avg/5*100)+"%",height:"100%",borderRadius:6,background:x.avg>=3.5?COR.pais:x.avg>=2.5?"#C99A2E":COR.meninas}}></div></div>
+            <div style=${{height:8,background:"#F0EBE3",borderRadius:6,overflow:"hidden"}}><div style=${{width:Math.min(x.pct*100,100)+"%",height:"100%",borderRadius:6,background:barCor(x.pct)}}></div></div>
           </div>`;})}</div>`}
       </div>
 
@@ -1125,6 +1139,7 @@ function Painel(props){
         <div className="note" style=${{marginBottom:12}}>Quanto do dia foi cumprido</div>
         <div style=${{display:"flex",alignItems:"flex-end",gap:3,height:92}}>${dias14.map(function(x){var h=x.pct===null?0:Math.max(x.pct*100,4);var hoje=x.iso===hojeLocal();return html`<div key=${x.iso} style=${{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,height:"100%",justifyContent:"flex-end"}}>
           <div style=${{width:"100%",height:h+"%",borderRadius:4,background:x.pct===null?"#F0EBE3":barCor(x.pct),opacity:hoje?1:0.85,border:hoje?"2px solid #2A2233":"none",boxSizing:"border-box"}}></div>
+          <div style=${{fontSize:8,fontWeight:700,color:x.pct===null?"#C9BED0":"#2A2233"}}>${x.pct===null?"":Math.round(x.pct*100)+"%"}</div>
           <div style=${{fontSize:8.5,color:"#857A8C",fontFamily:"'Space Mono',monospace"}}>${x.d.getDate()}</div>
         </div>`;})}</div>
         <div className="note" style=${{marginTop:8,fontSize:11}}>Barra cheia = 100% do dia · cinza = sem missões no dia</div>
