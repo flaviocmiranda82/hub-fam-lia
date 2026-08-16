@@ -569,6 +569,15 @@ function Inicio(props){
             <div className="pt-desc">Lista e compras</div>
           </div>
         </button>
+        <button className="capa-portal anim" style=${{animationDelay:".28s",background:"linear-gradient(150deg,#E8639B,#B84A8F)"}} onClick=${function(){props.ir("jogos");}}>
+          <div className="pt-bolha"></div>
+          <div className="pt-seta">→</div>
+          <div style=${{position:"relative",zIndex:1}}>
+            <div className="pt-emoji">🎮</div>
+            <div className="pt-tit">Jogos</div>
+            <div className="pt-desc">Aprender brincando</div>
+          </div>
+        </button>
         ${props.albumAtivo?html`<button className="capa-portal anim" style=${{animationDelay:".3s",background:"linear-gradient(150deg,#C99A2E,#a87e1f)"}} onClick=${function(){props.ir("album");}}>
           <div className="pt-bolha"></div>
           <div className="pt-seta">→</div>
@@ -1203,6 +1212,231 @@ function Painel(props){
     </div>`;
 }
 
+/* ============================================================
+   JOGOS INTERATIVOS  ·  motor de quiz genérico + catálogo
+   Para criar um novo jogo: basta adicionar um objeto em
+   JOGOS_CATALOGO (não precisa criar componente novo).
+   ============================================================ */
+const CRIANCAS_JOGO=[
+  {id:"larissa",nome:"Larissa",idade:11,emoji:"🦉",cor:"linear-gradient(150deg,#6E5A8E,#55446E)"},
+  {id:"leticia",nome:"Letícia",idade:7,emoji:"🌈",cor:"linear-gradient(150deg,#EC6A4C,#d4533a)"}
+];
+
+const TEMAS_JOGO={
+  planta:{acento:"#2e7d32",clara:"#66bb6a",fundo:"#e8f5e9",sol:"#ffca28",terra:"#8d6e63",destaque:"#ec7fa9",escuro:"#1b4332",creme:"#fffdf7",cabeca:"🌱",sombraBtn:"#d4a600",corBtn:"#7a5a00"},
+  padrao:{acento:"#2E8B83",clara:"#5fb0a8",fundo:"#E7F2F0",sol:"#EC6A4C",terra:"#857A8C",destaque:"#6E5A8E",escuro:"#2A2233",creme:"#fffdf7",cabeca:"🎯",sombraBtn:"#1f6660",corBtn:"#fff"}
+};
+function temaJogo(id){ return TEMAS_JOGO[id]||TEMAS_JOGO.padrao; }
+
+const JOGOS_CATALOGO={
+  leticia:[
+    { id:"plantas", tipo:"quiz", tit:"Prova das Plantas", materia:"Ciências", emoji:"🌱",
+      nivel:"Médio", tema:"planta",
+      desc:"Ciclo de vida, partes da planta e meio ambiente (unidades 4 e 5)",
+      perguntas:[
+        { q:"Na fotossíntese a planta produz o próprio alimento. O que ela usa para isso?",
+          op:["Só água","Luz do sol, água e gás carbônico (ar)","Só terra","Só adubo"], c:1 },
+        { q:"Qual parte fixa a planta no solo e absorve água e nutrientes?",
+          op:["O caule","A folha","A raiz","A flor"], c:2 },
+        { q:"O caule tem função de transporte. O que ele leva pela planta?",
+          op:["Só ar","Água e seiva (alimento)","Apenas sementes","Luz"], c:1 },
+        { q:"Na flor, como se chama a transferência do pólen que ajuda a formar frutos?",
+          op:["Germinação","Fotossíntese","Polinização","Irrigação"], c:2 },
+        { q:"Muitas plantas dependem de abelhas e borboletas para:",
+          op:["Comer as folhas","Polinizar (levar o pólen)","Fazer raízes","Tirar a água"], c:1 },
+        { q:"O que a semente precisa fazer para virar uma nova planta?",
+          op:["Secar","Germinar (brotar)","Apodrecer","Congelar"], c:1 },
+        { q:"No ciclo de vida, o que vem logo DEPOIS da semente?",
+          op:["O fruto","O broto (plântula)","A flor murcha","A folha seca"], c:1 },
+        { q:"Qual é a principal função do fruto?",
+          op:["Fazer fotossíntese","Proteger e ajudar a espalhar a semente","Segurar a planta","Atrair a chuva"], c:1 },
+        { q:"Quando o vento, a água ou os animais levam sementes para longe, isso se chama:",
+          op:["Polinização","Dispersão de sementes","Germinação","Evaporação"], c:1 },
+        { q:"Por que as folhas geralmente são verdes?",
+          op:["Por causa da clorofila","Por causa da água","Por causa da terra","Por causa do sol guardado"], c:0 },
+        { q:"As plantas ajudam o ar que respiramos porque:",
+          op:["Soltam fumaça","Liberam gás oxigênio","Tiram todo o ar","Fazem vento"], c:1 },
+        { q:"O desmatamento (cortar muitas árvores) costuma causar:",
+          op:["Mais chuva sempre","Prejuízo aos animais e ao ambiente","Nada de diferente","Mais frutas"], c:1 },
+        { q:"Hidroponia é um jeito de cultivar plantas:",
+          op:["Só no deserto","Sem terra, com as raízes na água com nutrientes","Sem nenhuma água","Só no escuro"], c:1 },
+        { q:"Para uma horta em casa crescer bem, o que NÃO pode faltar?",
+          op:["Barulho","Água e luz do sol","Escuridão total","Sal"], c:1 },
+        { q:"Qual destes é uma RAIZ que também usamos como alimento?",
+          op:["Alface","Cenoura","Maçã","Girassol"], c:1 },
+        { q:"Qual destes alimentos é uma FOLHA que comemos?",
+          op:["Batata","Alface","Tomate","Feijão"], c:1 },
+        { q:"Qual destes é um FRUTO?",
+          op:["Cenoura","Alface","Tomate","Beterraba"], c:2 },
+        { q:"O que faz o agricultor?",
+          op:["Vende roupas","Cultiva plantas e alimentos","Constrói casas","Só pesca"], c:1 },
+        { q:"Qual atitude ajuda a cuidar do meio ambiente?",
+          op:["Jogar lixo no rio","Plantar árvores e economizar água","Cortar árvores por diversão","Deixar a torneira aberta"], c:1 },
+        { q:"Se uma planta fica muitos dias sem água e sem sol, o que costuma acontecer?",
+          op:["Fica mais forte","Murcha e pode morrer","Vira pedra","Cresce mais rápido"], c:1 }
+      ] }
+  ],
+  larissa:[]
+};
+
+/* ---- MOTOR DE QUIZ (serve para qualquer prova do catálogo) ---- */
+function JogoQuiz(props){
+  const jogo=props.jogo, crianca=props.crianca, onVoltar=props.onVoltar;
+  const PERGUNTAS=jogo.perguntas, total=PERGUNTAS.length;
+  const nome=(crianca&&crianca.nome)||"";
+  const C=temaJogo(jogo.tema);
+
+  function baralho(a){ a=[...a]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t;} return a; }
+  function preparar(){ return baralho(PERGUNTAS).map(function(p){ return { q:p.q, op:baralho(p.op.map(function(t,i){ return {t:t, ok:i===p.c}; })) }; }); }
+
+  const [fase,setFase]=useState("inicio");
+  const [lista,setLista]=useState([]);
+  const [i,setI]=useState(0);
+  const [pontos,setPontos]=useState(0);
+  const [acertos,setAcertos]=useState(0);
+  const [seq,setSeq]=useState(0);
+  const [melhor,setMelhor]=useState(0);
+  const [escolha,setEscolha]=useState(null);
+  const [travado,setTravado]=useState(false);
+
+  function iniciar(){ setLista(preparar()); setI(0); setPontos(0); setAcertos(0); setSeq(0); setMelhor(0); setEscolha(null); setTravado(false); setFase("jogo"); }
+  function responder(k){
+    if(travado) return; setTravado(true); setEscolha(k);
+    const acertou=lista[i].op[k].ok;
+    if(acertou){ const b=seq>=2?5:0; setPontos(function(p){return p+10+b;}); setAcertos(function(a){return a+1;}); setSeq(function(s){var n=s+1; setMelhor(function(m){return Math.max(m,n);}); return n;}); }
+    else { setSeq(0); }
+    setTimeout(function(){ if(i+1<total){ setI(function(n){return n+1;}); setEscolha(null); setTravado(false); } else { setFase("fim"); } }, 950);
+  }
+
+  const st={
+    wrap:{maxWidth:480,margin:"0 auto",padding:16,fontFamily:"inherit",color:C.escuro},
+    card:{background:C.creme,borderRadius:22,padding:"20px 16px",boxShadow:"0 10px 26px rgba(27,67,50,.14)",border:"3px solid #fff"},
+    voltar:{background:"none",border:"none",color:C.terra,fontSize:15,cursor:"pointer",marginBottom:10},
+    h1:{fontSize:24,color:C.acento,margin:"6px 0",textAlign:"center"},
+    badge:{display:"inline-block",background:C.sol,color:C.corBtn==="#fff"?"#fff":"#7a5a00",fontWeight:"bold",fontSize:13,padding:"4px 12px",borderRadius:20},
+    btn:{fontFamily:"inherit",fontSize:20,fontWeight:"bold",color:C.corBtn,background:C.sol,border:"none",borderRadius:18,padding:"14px 26px",cursor:"pointer",boxShadow:"0 6px 0 "+C.sombraBtn},
+    topo:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,fontSize:15,fontWeight:"bold",color:C.terra},
+    barra:{flex:1,height:14,background:"#e0e0d5",borderRadius:20,margin:"0 10px",overflow:"hidden",border:"2px solid #fff"},
+    bola:{width:44,height:44,borderRadius:"50%",background:C.destaque,color:"#fff",fontWeight:"bold",fontSize:20,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"},
+    perg:{fontSize:18,lineHeight:1.3,textAlign:"center",margin:"4px 4px 16px"},
+    estrelas:{fontSize:38,letterSpacing:4,textAlign:"center"},
+    placar:{fontSize:40,color:C.acento,fontWeight:"bold",textAlign:"center",margin:"4px 0"},
+    stats:{display:"flex",justifyContent:"center",gap:18,color:C.terra,fontSize:15,margin:"8px 0 14px",fontWeight:"bold"},
+    msg:{fontSize:17,color:C.terra,margin:"6px 8px 16px",textAlign:"center"}
+  };
+  function opStyle(estado){ return {display:"flex",alignItems:"center",gap:12,width:"100%",textAlign:"left",fontFamily:"inherit",fontSize:17,color:C.escuro,cursor:travado?"default":"pointer",marginBottom:10,padding:"12px 14px",borderRadius:16,minWidth:0,boxSizing:"border-box",border:"3px solid "+(estado==="ok"?C.acento:estado==="erro"?C.destaque:C.clara),background:estado==="ok"?C.fundo:estado==="erro"?"#fde7ef":"#fff"}; }
+  function letStyle(estado){ return {flex:"none",width:34,height:34,borderRadius:10,fontWeight:"bold",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",background:estado==="ok"?C.acento:estado==="erro"?C.destaque:C.fundo,color:estado==="neutra"?C.acento:"#fff"}; }
+  const letras=["A","B","C","D"];
+  const primeiroNome=nome?String(nome).trim().split(" ")[0]:"";
+
+  if(fase==="inicio"){
+    return html`<div style=${st.wrap}>
+      <button style=${st.voltar} onClick=${onVoltar}>← Voltar</button>
+      <div style=${{...st.card,textAlign:"center"}}>
+        <div style=${{fontSize:48}}>${jogo.emoji||C.cabeca}</div>
+        <h1 style=${st.h1}>${jogo.tit}</h1>
+        <span style=${st.badge}>🎯 Nível ${jogo.nivel} · ${total} perguntas</span>
+        <p style=${{color:C.terra,fontSize:16}}>${primeiroNome?("Bora, "+primeiroNome+"! "):"Bora! "}Cada acerto vale pontos, e sequência dá bônus! 🔥</p>
+        <button style=${st.btn} onClick=${iniciar}>Começar 🚀</button>
+      </div></div>`;
+  }
+
+  if(fase==="jogo"){
+    const p=lista[i]; const prog=Math.round((i/total)*100);
+    return html`<div style=${st.wrap}><div style=${st.card}>
+      <div style=${st.topo}>
+        <span>${C.cabeca} ${i+1}/${total}</span>
+        <div style=${st.barra}><div style=${{height:"100%",width:prog+"%",background:"linear-gradient(90deg,"+C.clara+","+C.acento+")",borderRadius:20}}></div></div>
+        <span>⭐ ${pontos}</span>
+      </div>
+      ${seq>=2 && html`<div style=${{textAlign:"center",color:C.destaque,fontWeight:"bold",marginBottom:6}}>🔥 Sequência de ${seq}!</div>`}
+      <div style=${st.bola}>${i+1}</div>
+      <p style=${st.perg}>${p.q}</p>
+      ${p.op.map(function(o,k){
+        let estado="neutra";
+        if(travado){ if(o.ok) estado="ok"; else if(k===escolha) estado="erro"; }
+        return html`<div key=${k} style=${opStyle(estado)} onClick=${function(){responder(k);}}>
+          <span style=${letStyle(estado)}>${estado==="ok"?"✓":estado==="erro"?"✗":letras[k]}</span>
+          <span style=${{minWidth:0}}>${o.t}</span></div>`;
+      })}
+    </div></div>`;
+  }
+
+  const pct=acertos/total;
+  const estrelas=pct>=0.9?"⭐⭐⭐":pct>=0.6?"⭐⭐":pct>=0.3?"⭐":"🌱";
+  const msg=pct>=0.9?("Incrível"+(primeiroNome?(", "+primeiroNome):"")+"! Você domina esse assunto! 🌳"):pct>=0.6?("Muito bem"+(primeiroNome?(", "+primeiroNome):"")+"! Jogada de expert! 🌻"):pct>=0.3?"Boa! Mais uma rodada e você sobe de nível! 🌱":"Toda semente cresce com o tempo 🌱 Bora de novo!";
+  return html`<div style=${st.wrap}>
+    <button style=${st.voltar} onClick=${onVoltar}>← Voltar</button>
+    <div style=${st.card}>
+      <div style=${st.estrelas}>${estrelas}</div>
+      <div style=${st.placar}>${pontos} <span style=${{fontSize:20,color:C.terra}}>pontos</span></div>
+      <div style=${st.stats}><span>✅ ${acertos}/${total}</span><span>🔥 melhor: ${melhor}</span></div>
+      <p style=${st.msg}>${msg}</p>
+      <div style=${{textAlign:"center"}}><button style=${st.btn} onClick=${iniciar}>Jogar de novo 🔁</button></div>
+    </div></div>`;
+}
+
+/* ---- HUB: escolher criança e listar jogos dela ---- */
+function Jogos(props){
+  const [tela,setTela]=useState("casa");   // "casa" | id da criança
+  const [jogoId,setJogoId]=useState(null);
+
+  if(tela!=="casa" && jogoId){
+    const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
+    const jogo=(JOGOS_CATALOGO[tela]||[]).find(function(j){return j.id===jogoId;});
+    if(jogo) return html`<${JogoQuiz} jogo=${jogo} crianca=${crianca} onVoltar=${function(){setJogoId(null);}}/>`;
+  }
+
+  if(tela!=="casa"){
+    const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
+    const jogos=JOGOS_CATALOGO[tela]||[];
+    return html`<div className="wrap">
+      <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:14}} onClick=${function(){setTela("casa");}}>← Crianças</button>
+      <div className="eyebrow">Jogos de ${crianca.nome}</div>
+      <div className="h1" style=${{marginBottom:4}}>${crianca.emoji} ${crianca.nome} <span style=${{fontSize:15,color:"#857A8C",fontWeight:600}}>· ${crianca.idade} anos</span></div>
+      <div className="note" style=${{marginBottom:16}}>Escolha um jogo para testar o que aprendeu.</div>
+      ${jogos.length===0?html`<div className="card" style=${{padding:"28px 18px",textAlign:"center"}}>
+        <div style=${{fontSize:34}}>🎯</div>
+        <div style=${{fontWeight:700,marginTop:8}}>Nenhum jogo ainda</div>
+        <div className="note" style=${{marginTop:6}}>Peça pro papai criar o primeiro jogo da ${crianca.nome} com a matéria da prova.</div>
+      </div>`:html`<div style=${{display:"flex",flexDirection:"column",gap:11}}>
+        ${jogos.map(function(j){ return html`<button key=${j.id} className="card" onClick=${function(){setJogoId(j.id);}} style=${{border:"none",cursor:"pointer",textAlign:"left",padding:"15px 16px",display:"flex",alignItems:"center",gap:13,minWidth:0}}>
+          <div style=${{fontSize:30,flex:"none"}}>${j.emoji}</div>
+          <div style=${{flex:1,minWidth:0}}>
+            <div style=${{fontWeight:700,fontSize:16}}>${j.tit}</div>
+            <div className="note" style=${{marginTop:2}}>${j.desc}</div>
+            <div style=${{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}}>
+              <span className="chip" style=${{background:"#F0EBE3",color:"#6b6270"}}>${j.materia}</span>
+              <span className="chip" style=${{background:"#F0EBE3",color:"#6b6270"}}>🎯 ${j.nivel}</span>
+              <span className="chip" style=${{background:"#F0EBE3",color:"#6b6270"}}>${j.perguntas.length} perguntas</span>
+            </div>
+          </div>
+          <div style=${{fontSize:18,color:"#857A8C",flex:"none"}}>→</div>
+        </button>`; })}
+      </div>`}
+    </div>`;
+  }
+
+  return html`<div className="wrap">
+    <div className="eyebrow">Jogos Interativos</div>
+    <div className="h1" style=${{marginBottom:4}}>🎮 Aprender jogando</div>
+    <div className="note" style=${{marginBottom:18}}>Escolha quem vai jogar.</div>
+    <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+      ${CRIANCAS_JOGO.map(function(c,idx){ var qtd=(JOGOS_CATALOGO[c.id]||[]).length; return html`<button key=${c.id} className="capa-portal anim" style=${{animationDelay:(idx*0.08)+"s",background:c.cor,minHeight:152}} onClick=${function(){setTela(c.id);}}>
+        <div className="pt-bolha"></div>
+        <div className="pt-seta">→</div>
+        <div style=${{position:"relative",zIndex:1}}>
+          <div style=${{fontSize:40,lineHeight:1}}>${c.emoji}</div>
+          <div className="pt-tit" style=${{fontSize:20}}>${c.nome}</div>
+          <div className="pt-desc">${c.idade} anos</div>
+          <div className="pt-dado">${qtd===0?"em breve":(qtd+(qtd===1?" jogo":" jogos"))}</div>
+        </div>
+      </button>`; })}
+    </div>
+  </div>`;
+}
+
+
 function App(){
   const [sessao,setSessao]=useState(undefined);
   const [papel,setPapel]=useState("filha");
@@ -1227,13 +1461,14 @@ function App(){
         <button onClick=${function(){setAba("inicio");}} style=${{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0}}><span style=${{fontSize:20,color:"#2A2233",lineHeight:1}}>←</span><span className="eyebrow" style=${{display:"flex",alignItems:"center",gap:7}}><span style=${{fontSize:14}}>🏠</span>Hub da Família</span></button>
         <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13}} onClick=${function(){sb.auth.signOut();}}>Sair</button>
       </div>
-      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:aba==="carteira"?html`<${Carteira} papel=${papel} nome=${nome} toast=${toast}/>`:aba==="mercado"?html`<${Mercado} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
+      ${aba==="agenda"?html`<${Agenda} toast=${toast}/>`:aba==="painel"?html`<${Painel} papel=${papel} nome=${nome} albumAtivo=${albumAtivo} toggleAlbum=${toggleAlbum}/>`:aba==="album"?html`<${Album} papel=${papel} toast=${toast} toggleAlbum=${toggleAlbum}/>`:aba==="carteira"?html`<${Carteira} papel=${papel} nome=${nome} toast=${toast}/>`:aba==="mercado"?html`<${Mercado} toast=${toast}/>`:aba==="jogos"?html`<${Jogos} nome=${nome} papel=${papel} toast=${toast}/>`:html`<${Missoes} papel=${papel} nome=${nome} toast=${toast}/>`}
       <div className="tabs">
         <button className=${"tab"+(aba==="inicio"?" on":"")} onClick=${function(){setAba("inicio");}}>🏠<br/>Início</button>
         <button className=${"tab"+(aba==="agenda"?" on":"")} onClick=${function(){setAba("agenda");}}>📅<br/>Agenda</button>
         <button className=${"tab"+(aba==="missoes"?" on":"")} onClick=${function(){setAba("missoes");}}>✅<br/>Missões</button>
         <button className=${"tab"+(aba==="carteira"?" on":"")} onClick=${function(){setAba("carteira");}}>💰<br/>Carteira</button>
         <button className=${"tab"+(aba==="mercado"?" on":"")} onClick=${function(){setAba("mercado");}}>🛒<br/>Mercado</button>
+        <button className=${"tab"+(aba==="jogos"?" on":"")} onClick=${function(){setAba("jogos");}}>🎮<br/>Jogos</button>
         ${albumAtivo?html`<button className=${"tab"+(aba==="album"?" on":"")} onClick=${function(){setAba("album");}}>⚽<br/>Álbum</button>`:null}
         ${(papel==="pai"||papel==="mae")?html`<button className=${"tab"+(aba==="painel"?" on":"")} onClick=${function(){setAba("painel");}}>📊<br/>Painel</button>`:null}
       </div>
