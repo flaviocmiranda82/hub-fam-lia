@@ -204,6 +204,16 @@ function Agenda(props){
   function editar(ev){ setN({titulo:ev.titulo||"",data:ev.data||"",data_fim:ev.data_fim||"",inicio:ev.inicio||"",fim:ev.fim||"",local:ev.local||"",convidado:ev.convidado||"",festa_infantil:!!ev.festa_infantil,responsavel:ev.responsavel||"",tipo:ev.tipo||"evento",pai_id:ev.pai_id||null,repetir:"nao",dias_sem:[],ate:""}); setEditId(ev.id); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   function addFilho(ev){ setN(Object.assign({},vazio,{tipo:"evento",pai_id:ev.id,data:ev.data||"",festa_infantil:!!ev.festa_infantil})); setEditId(null); setAbrir(true); window.scrollTo({top:0,behavior:"smooth"}); }
   async function apagar(id){ await sb.from("eventos").delete().eq("id",id); carregar(); }
+  const ehPassado=function(e){ if(e.pai_id)return false; var lim=(e.tipo==="viagem"&&e.data_fim)?e.data_fim:e.data; var nn=dAte(lim); return nn!==null&&nn<0; };
+  const nPassados=eventos.filter(ehPassado).length;
+  async function apagarPassados(){
+    var alvos=eventos.filter(ehPassado);
+    if(!alvos.length){toast("Não há eventos passados.");return;}
+    if(!window.confirm("Apagar "+alvos.length+" evento(s) que já passaram? Não dá pra desfazer."))return;
+    var ids=[]; alvos.forEach(function(e){ ids.push(e.id); filhosDe(e.id).forEach(function(f){ids.push(f.id);}); });
+    var r=await sb.from("eventos").delete().in("id",ids);
+    if(r.error)toast(r.error.message); else{carregar();toast(alvos.length+" evento(s) passado(s) apagado(s).");}
+  }
   const up=function(k,v){setN(function(p){const o=Object.assign({},p);o[k]=v;return o;});};
   async function prepararImagem(file){const bmp=await createImageBitmap(file);const max=1568;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.85);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
   async function lerConvite(e){const file=e.target.files&&e.target.files[0];if(!file)return;setLendo(true);try{const img=await prepararImagem(file);const r=await sb.functions.invoke("ler-convite",{body:{imagem:img.base64,mediaType:img.mediaType}});if(r.error)throw r.error;const d=r.data||{};setN(Object.assign({},vazio,{titulo:d.titulo||"",data:d.data||"",inicio:d.inicio||"",fim:d.fim||"",local:d.local||"",convidado:d.convidado||"",festa_infantil:!!d.festa_infantil}));setAbrir(true);}catch(err){toast("Não consegui ler o convite. Preencha à mão.");setN(vazio);setAbrir(true);}finally{setLendo(false);e.target.value="";}}
@@ -269,7 +279,10 @@ function Agenda(props){
             ${(n.festa_infantil&&n.tipo!=="viagem")?html`<div><span className="label">Quem leva / busca</span><input className="input" value=${n.responsavel} onChange=${function(e){up("responsavel",e.target.value);}}/></div>`:null}
             <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvar}>${editId?"Salvar alterações":"Guardar"}</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);setEditId(null);setN(vazio);}}>Cancelar</button></div>
           </div>`}
-      <div className="eyebrow" style=${{margin:"22px 2px 12px"}}>Próximos</div>
+      <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"22px 2px 12px"}}>
+        <div className="eyebrow" style=${{margin:0}}>Próximos</div>
+        ${nPassados>0?html`<button className="btn btn-ghost" style=${{padding:"5px 10px",fontSize:12}} onClick=${apagarPassados}>🧹 Limpar ${nPassados} passado${nPassados>1?"s":""}</button>`:null}
+      </div>
       ${raiz.length===0
         ? html`<div className="card" style=${{padding:24,textAlign:"center"}}><div style=${{fontWeight:600}}>Nada marcado ainda</div></div>`
         : html`<div style=${{display:"flex",flexDirection:"column",gap:11}}>${raiz.map(function(ev){const viagem=ehViagem(ev);const cor=viagem?"#C99A2E":(ev.festa_infantil?COR.meninas:COR.pais);const filhos=viagem?filhosDe(ev.id):[];return html`
@@ -649,18 +662,31 @@ function Mercado(props){
   const lista=listas.find(function(l){return l.id===ativaId;});
   const itensL=itens.filter(function(i){return i.lista_id===ativaId;});
   const catDe=function(nome){var achou="🛒 Mercearia";Object.keys(MERCADO_BASE).forEach(function(c){if(MERCADO_BASE[c].indexOf(nome)>=0)achou=c;});return achou;};
+  const nomesBase={}; Object.keys(MERCADO_BASE).forEach(function(c){MERCADO_BASE[c].forEach(function(p){nomesBase[p.toLowerCase()]=true;});});
+  const extrasMap={}; itens.forEach(function(i){var nm=(i.nome||"").trim(); if(nm && !nomesBase[nm.toLowerCase()] && !extrasMap[nm.toLowerCase()]){ extrasMap[nm.toLowerCase()]={nome:nm,categoria:i.categoria||catDe(nm)}; }});
+  const EXTRAS=Object.keys(extrasMap).map(function(k){return extrasMap[k];}).sort(function(a,b){return a.nome.localeCompare(b.nome);});
 
   async function criarLista(){ if(!nova.nome.trim()){toast("Dê um nome à lista.");return;}
     const r=await sb.from("mercado_listas").insert({nome:nova.nome,mercado:nova.mercado,orcamento:Number(nova.orcamento)||0,data:nova.data,status:"preparando",total:0}).select().single();
     if(r.error){toast(r.error.message);return;} setNova({nome:"",mercado:"",orcamento:"",data:hojeLocal()}); setNovaAberto(false); setAtivaId(r.data.id); setTela("lista"); carregar();
   }
   async function addItem(nome,cat){ if(!ativaId)return; if(itensL.some(function(i){return i.nome.toLowerCase()===nome.toLowerCase();})){toast(nome+" já está na lista.");return;}
-    const r=await sb.from("mercado_itens").insert({lista_id:ativaId,nome:nome,categoria:cat||catDe(nome),qtd:1,unidade:"un",preco:null,comprado:false}); if(r.error)toast(r.error.message); else carregar();
+    const r=await sb.from("mercado_itens").insert({lista_id:ativaId,nome:nome,categoria:cat||catDe(nome),qtd:1,unidade:"un",preco:null,comprado:false}); if(r.error)toast(r.error.message); else {carregar();setBusca("");}
   }
   async function addManual(){ if(!busca.trim())return; await addItem(busca.trim(),catDe(busca.trim())); setBusca(""); }
   async function updItem(id,campo,val){ var r=await sb.from("mercado_itens").update(campo).eq("id",id); if(r.error)toast(r.error.message); else carregar(); }
   async function delItem(id){ await sb.from("mercado_itens").delete().eq("id",id); carregar(); }
   async function delLista(id){ await sb.from("mercado_itens").delete().eq("lista_id",id); await sb.from("mercado_listas").delete().eq("id",id); if(ativaId===id){setAtivaId(null);setTela("home");} carregar(); }
+  async function reutilizar(l){
+    var its=itens.filter(function(i){return i.lista_id===l.id;});
+    if(!its.length){toast("Essa lista não tem itens para reaproveitar.");return;}
+    var r=await sb.from("mercado_listas").insert({nome:l.nome,mercado:l.mercado||"",orcamento:Number(l.orcamento)||0,data:hojeLocal(),status:"preparando",total:0}).select().single();
+    if(r.error){toast(r.error.message);return;}
+    var novos=its.map(function(i){return {lista_id:r.data.id,nome:i.nome,categoria:i.categoria,qtd:i.qtd||1,unidade:i.unidade||"un",preco:null,comprado:false};});
+    var r2=await sb.from("mercado_itens").insert(novos);
+    if(r2.error){toast(r2.error.message);return;}
+    setAtivaId(r.data.id); setTela("lista"); carregar(); toast("Lista reaproveitada: "+novos.length+" itens 🔁");
+  }
   async function setStatus(st){ if(!lista)return; await sb.from("mercado_listas").update({status:st}).eq("id",lista.id); carregar(); }
 
   const totalComprado=function(its){var t=0;its.forEach(function(i){if(i.comprado&&i.preco)t+=Number(i.preco)*Number(i.qtd||1);});return t;};
@@ -761,7 +787,7 @@ function Mercado(props){
           <input value=${busca} onChange=${function(e){setBusca(e.target.value);}} placeholder="Buscar ou digitar produto" style=${{flex:1,padding:"10px 12px",border:"1px solid #E4D9CC",borderRadius:10,fontSize:14}}/>
           <button className="btn btn-primary" style=${{padding:"8px 12px"}} onClick=${addManual}>+</button>
         </div>
-        <div style=${{maxHeight:280,overflowY:"auto"}}>${Object.keys(MERCADO_BASE).map(function(cat){var itensCat=MERCADO_BASE[cat].filter(function(p){return !busca||p.toLowerCase().indexOf(busca.toLowerCase())>=0;});if(!itensCat.length)return null;var aberta=(catAberta===cat||busca);return html`<div key=${cat} style=${{marginBottom:6}}>
+        <div style=${{maxHeight:280,overflowY:"auto"}}>${EXTRAS.length?html`<div style=${{marginBottom:6}}>${(function(){var itensEx=EXTRAS.filter(function(p){return !busca||p.nome.toLowerCase().indexOf(busca.toLowerCase())>=0;});if(!itensEx.length)return null;var aberta=(catAberta==="__extras"||busca);return html`<div><button onClick=${function(){setCatAberta(catAberta==="__extras"?"":"__extras");}} style=${{width:"100%",textAlign:"left",padding:"8px 4px",border:"none",background:"none",fontWeight:700,fontSize:13.5,cursor:"pointer"}}>⭐ Já usei antes ${aberta?"▾":"▸"}</button>${aberta?html`<div style=${{display:"flex",flexWrap:"wrap",gap:6,padding:"2px 2px 8px"}}>${itensEx.map(function(p){var jaTem=itensL.some(function(x){return x.nome===p.nome;});return html`<button key=${p.nome} disabled=${jaTem} onClick=${function(){addItem(p.nome,p.categoria);}} style=${{padding:"7px 11px",borderRadius:9,border:"1px solid "+(jaTem?COR.pais:"#E4D9CC"),background:jaTem?COR.paisBg:"#fff",color:jaTem?COR.pais:"#2A2233",fontSize:12.5,cursor:jaTem?"default":"pointer"}}>${jaTem?"✓ ":""}${p.nome}</button>`;})}</div>`:null}</div>`;})()}</div>`:null}${Object.keys(MERCADO_BASE).map(function(cat){var itensCat=MERCADO_BASE[cat].filter(function(p){return !busca||p.toLowerCase().indexOf(busca.toLowerCase())>=0;});if(!itensCat.length)return null;var aberta=(catAberta===cat||busca);return html`<div key=${cat} style=${{marginBottom:6}}>
           <button onClick=${function(){setCatAberta(catAberta===cat?"":cat);}} style=${{width:"100%",textAlign:"left",padding:"8px 4px",border:"none",background:"none",fontWeight:700,fontSize:13.5,cursor:"pointer"}}>${cat} ${aberta?"▾":"▸"}</button>
           ${aberta?html`<div style=${{display:"flex",flexWrap:"wrap",gap:6,padding:"2px 2px 8px"}}>${itensCat.map(function(p){var jaTem=itensL.some(function(x){return x.nome===p;});return html`<button key=${p} disabled=${jaTem} onClick=${function(){addItem(p,cat);}} style=${{padding:"7px 11px",borderRadius:9,border:"1px solid "+(jaTem?COR.pais:"#E4D9CC"),background:jaTem?COR.paisBg:"#fff",color:jaTem?COR.pais:"#2A2233",fontSize:12.5,cursor:jaTem?"default":"pointer"}}>${jaTem?"✓ ":""}${p}</button>`;})}</div>`:null}
         </div>`;})}</div>
@@ -820,7 +846,7 @@ function Mercado(props){
       <div className="eyebrow" style=${{marginBottom:8}}>Última compra</div>
       <div className="card" style=${{padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style=${{fontWeight:700,fontSize:15}}>${ultima.nome}</div><div className="note" style=${{fontSize:12}}>${ultima.mercado||""} · ${fCurta(ultima.data)}</div></div>
-        <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:18,color:COR.pais}}>${fmtR(ultima.total)}</div>
+        <div style=${{display:"flex",alignItems:"center",gap:10,flexShrink:0}}><div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:18,color:COR.pais}}>${fmtR(ultima.total)}</div><button className="btn btn-ghost" style=${{padding:"7px 10px",fontSize:12.5}} onClick=${function(){reutilizar(ultima);}}>🔁 Repetir</button></div>
       </div>
     </div>`:null}
 
@@ -833,7 +859,7 @@ function Mercado(props){
       <div className="eyebrow" style=${{marginBottom:8}}>Histórico</div>
       <div style=${{display:"flex",flexDirection:"column",gap:7}}>${concluidas.slice(0,10).map(function(l){return html`<div key=${l.id} className="card" style=${{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 14px"}}>
         <div style=${{minWidth:0}}><div style=${{fontWeight:600,fontSize:14}}>${l.nome}</div><div className="note" style=${{fontSize:11.5}}>${l.mercado||""} · ${fCurta(l.data)}</div></div>
-        <div style=${{display:"flex",alignItems:"center",gap:8,flexShrink:0}}><span style=${{fontWeight:700,fontSize:14,color:COR.pais}}>${fmtR(l.total)}</span><button onClick=${function(){if(confirm("Apagar do histórico?"))delLista(l.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer"}}>×</button></div>
+        <div style=${{display:"flex",alignItems:"center",gap:8,flexShrink:0}}><span style=${{fontWeight:700,fontSize:14,color:COR.pais}}>${fmtR(l.total)}</span><button onClick=${function(){reutilizar(l);}} style=${{border:"none",background:"none",color:COR.pais,fontSize:15,cursor:"pointer"}} title="Reutilizar">🔁</button><button onClick=${function(){if(confirm("Apagar do histórico?"))delLista(l.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer"}}>×</button></div>
       </div>`;})}</div>
     </div>`:null}
   </div>`;
@@ -1376,25 +1402,80 @@ function JogoQuiz(props){
     </div></div>`;
 }
 
+function parseProvaTxt(txt){
+  var linhas=String(txt||"").split(/\r?\n/);
+  var titulo="", materiaGlobal="", materiaAtual="", temQuestao=false;
+  var perguntas=[], atual=null, erros=[];
+  function fecha(){
+    if(!atual) return;
+    if(atual.op.length<2){ erros.push("“"+atual.q.slice(0,32)+"”: precisa de pelo menos 2 alternativas."); }
+    else if(atual.c<0){ erros.push("“"+atual.q.slice(0,32)+"”: nenhuma alternativa marcada com *."); }
+    else { perguntas.push({q:atual.q, op:atual.op.slice(), c:atual.c, materia:atual.materia||"", exp:atual.exp||""}); }
+    atual=null;
+  }
+  for(var idx=0; idx<linhas.length; idx++){
+    var l=linhas[idx].trim(); if(!l) continue;
+    var low=l.toLowerCase();
+    if(low.indexOf("prova:")===0){ titulo=l.slice(l.indexOf(":")+1).trim(); continue; }
+    if(low.indexOf("materia:")===0 || low.indexOf("matéria:")===0){ var m=l.slice(l.indexOf(":")+1).trim(); materiaAtual=m; if(!perguntas.length && !atual) materiaGlobal=m; continue; }
+    if(low.indexOf("p:")===0){ fecha(); temQuestao=true; atual={q:l.slice(l.indexOf(":")+1).trim(), op:[], c:-1, materia:materiaAtual||materiaGlobal, exp:""}; continue; }
+    if(low.indexOf("explicacao:")===0 || low.indexOf("explicação:")===0){ if(atual) atual.exp=l.slice(l.indexOf(":")+1).trim(); continue; }
+    if(l.charAt(0)==="-"){ if(!atual) continue; var t=l.slice(1).trim(); var ok=false; if(/\*\s*$/.test(t)){ ok=true; t=t.replace(/\*\s*$/,"").trim(); } if(ok && atual.c<0) atual.c=atual.op.length; atual.op.push(t); continue; }
+  }
+  fecha();
+  if(!temQuestao) erros.push("Não encontrei nenhuma pergunta. Cada pergunta começa com “P:”.");
+  return {titulo:titulo, materia:materiaGlobal, perguntas:perguntas, erros:erros};
+}
 /* ---- HUB: escolher criança e listar jogos dela ---- */
 function Jogos(props){
   const [tela,setTela]=useState("casa");   // "casa" | id da criança
   const [jogoId,setJogoId]=useState(null);
+  const toast=props.toast||function(){};
+  const ehPai=(props.papel==="pai"||props.papel==="mae");
+  const [importados,setImportados]=useState([]);
+  const [impAberto,setImpAberto]=useState(false);
+  const [impTxt,setImpTxt]=useState("");
+  const [impPreview,setImpPreview]=useState(null);
+  const carregarProvas=async function(){ var r=await sb.from("jogo_provas").select("*").order("criado_em",{ascending:false}); if(!r.error) setImportados(r.data||[]); };
+  useEffect(function(){ carregarProvas(); },[]);
+  function jogosDe(cid){ var base=(JOGOS_CATALOGO[cid]||[]).slice(); var imp=importados.filter(function(p){return p.crianca_id===cid;}).map(function(p){ return {id:"imp_"+p.id, tipo:"quiz", tit:p.titulo, materia:p.materia||"Prova", emoji:p.emoji||"📝", nivel:p.nivel||"Médio", tema:"padrao", desc:"Prova importada pelo papai", perguntas:p.perguntas||[], _impId:p.id}; }); return base.concat(imp); }
+  async function salvarProva(cid,prev){ if(!prev||prev.erros.length||!prev.perguntas.length)return; var perguntas=prev.perguntas.map(function(p){return {q:p.q,op:p.op,c:p.c,materia:p.materia||prev.materia||"",exp:p.exp||""};}); var r=await sb.from("jogo_provas").insert({crianca_id:cid,titulo:prev.titulo||"Prova",materia:prev.materia||"",emoji:"📝",nivel:"Médio",perguntas:perguntas}); if(r.error){toast(r.error.message);return;} setImpAberto(false);setImpTxt("");setImpPreview(null);carregarProvas();toast("Prova importada! 📝"); }
+  async function apagarProva(id){ if(!window.confirm("Apagar esta prova importada?"))return; var r=await sb.from("jogo_provas").delete().eq("id",id); if(r.error){toast(r.error.message);return;} carregarProvas(); }
 
   if(tela!=="casa" && jogoId){
     const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
-    const jogo=(JOGOS_CATALOGO[tela]||[]).find(function(j){return j.id===jogoId;});
+    const jogo=jogosDe(tela).find(function(j){return j.id===jogoId;});
     if(jogo) return html`<${JogoQuiz} jogo=${jogo} crianca=${crianca} onVoltar=${function(){setJogoId(null);}}/>`;
   }
 
   if(tela!=="casa"){
     const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
-    const jogos=JOGOS_CATALOGO[tela]||[];
+    const jogos=jogosDe(tela);
     return html`<div className="wrap">
       <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:14}} onClick=${function(){setTela("casa");}}>← Crianças</button>
       <div className="eyebrow">Jogos de ${crianca.nome}</div>
       <div className="h1" style=${{marginBottom:4}}>${crianca.emoji} ${crianca.nome} <span style=${{fontSize:15,color:"#857A8C",fontWeight:600}}>· ${crianca.idade} anos</span></div>
       <div className="note" style=${{marginBottom:16}}>Escolha um jogo para testar o que aprendeu.</div>
+      ${ehPai?(impAberto?html`<div className="card" style=${{padding:14,marginBottom:14}}>
+        <div style=${{fontWeight:700,marginBottom:6}}>📝 Importar prova</div>
+        <div className="note" style=${{marginBottom:8}}>Cole a prova no formato de texto (uma por vez).</div>
+        <textarea value=${impTxt} onChange=${function(e){setImpTxt(e.target.value);setImpPreview(null);}} placeholder=${"Prova: Frações\nMatéria: Matemática\n\nP: Quanto é 1/2 + 1/4?\n- 2/6\n- 3/4 *\n- 1/6"} style=${{width:"100%",minHeight:150,padding:"10px 12px",border:"1px solid #E4D9CC",borderRadius:10,fontSize:13.5,fontFamily:"monospace",boxSizing:"border-box"}}></textarea>
+        ${impPreview?html`<div style=${{marginTop:10,padding:"10px 12px",borderRadius:10,background:impPreview.erros.length?"#fde7ef":"#E6F4EA"}}>
+          <div style=${{fontWeight:700,fontSize:13.5}}>${impPreview.titulo||"(sem título)"} · ${impPreview.perguntas.length} pergunta(s)</div>
+          ${impPreview.erros.length?html`<ul style=${{margin:"6px 0 0",paddingLeft:18,fontSize:12.5,color:"#C64B33"}}>${impPreview.erros.map(function(er,ix){return html`<li key=${ix}>${er}</li>`;})}</ul>`:html`<div className="note" style=${{marginTop:4,fontSize:12.5}}>✓ Pronta para salvar.</div>`}
+        </div>`:null}
+        <div style=${{display:"flex",gap:8,marginTop:10}}>
+          ${!impPreview?html`<button className="btn btn-primary" style=${{flex:1}} onClick=${function(){setImpPreview(parseProvaTxt(impTxt));}}>Verificar</button>`:html`<button className="btn btn-primary" style=${{flex:1}} disabled=${impPreview.erros.length>0||!impPreview.perguntas.length} onClick=${function(){salvarProva(crianca.id,impPreview);}}>Salvar prova</button>`}
+          <button className="btn btn-ghost" onClick=${function(){setImpAberto(false);setImpTxt("");setImpPreview(null);}}>Fechar</button>
+        </div>
+      </div>`:html`<button className="btn btn-ghost" style=${{width:"100%",marginBottom:14}} onClick=${function(){setImpAberto(true);}}>📝 Importar prova (papai)</button>`):null}
+      ${ehPai&&importados.filter(function(p){return p.crianca_id===crianca.id;}).length?html`<div style=${{marginBottom:14}}>
+        <div className="eyebrow" style=${{marginBottom:8}}>Provas importadas</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:6}}>${importados.filter(function(p){return p.crianca_id===crianca.id;}).map(function(p){return html`<div key=${p.id} className="card" style=${{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px"}}>
+          <div style=${{minWidth:0}}><div style=${{fontWeight:600,fontSize:13.5}}>📝 ${p.titulo}</div><div className="note" style=${{fontSize:11.5}}>${(p.perguntas||[]).length} perguntas${p.materia?" · "+p.materia:""}</div></div>
+          <button onClick=${function(){apagarProva(p.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer",flexShrink:0}}>🗑</button>
+        </div>`;})}</div>
+      </div>`:null}
       ${jogos.length===0?html`<div className="card" style=${{padding:"28px 18px",textAlign:"center"}}>
         <div style=${{fontSize:34}}>🎯</div>
         <div style=${{fontWeight:700,marginTop:8}}>Nenhum jogo ainda</div>
@@ -1422,7 +1503,7 @@ function Jogos(props){
     <div className="h1" style=${{marginBottom:4}}>🎮 Aprender jogando</div>
     <div className="note" style=${{marginBottom:18}}>Escolha quem vai jogar.</div>
     <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-      ${CRIANCAS_JOGO.map(function(c,idx){ var qtd=(JOGOS_CATALOGO[c.id]||[]).length; return html`<button key=${c.id} className="capa-portal anim" style=${{animationDelay:(idx*0.08)+"s",background:c.cor,minHeight:152}} onClick=${function(){setTela(c.id);}}>
+      ${CRIANCAS_JOGO.map(function(c,idx){ var qtd=jogosDe(c.id).length; return html`<button key=${c.id} className="capa-portal anim" style=${{animationDelay:(idx*0.08)+"s",background:c.cor,minHeight:152}} onClick=${function(){setTela(c.id);}}>
         <div className="pt-bolha"></div>
         <div className="pt-seta">→</div>
         <div style=${{position:"relative",zIndex:1}}>
