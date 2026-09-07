@@ -1427,6 +1427,262 @@ function parseProvaTxt(txt){
   return {titulo:titulo, materia:materiaGlobal, perguntas:perguntas, erros:erros};
 }
 /* ---- HUB: escolher criança e listar jogos dela ---- */
+const SQL_BURACO=`create table if not exists public.buraco_partidas (
+  id uuid primary key default gen_random_uuid(),
+  criado_em timestamptz not null default now(),
+  titulo text,
+  status text not null default 'ativo',
+  vencedor text,
+  estado jsonb not null default '{}'::jsonb
+);
+alter table public.buraco_partidas enable row level security;
+create policy "buraco todos" on public.buraco_partidas
+  for all to authenticated using (true) with check (true);`;
+
+function Buraco(props){
+  const toast=props.toast||function(){};
+  const ehPai=(props.papel==="pai"||props.papel==="mae");
+  const [vista,setVista]=useState("lista");        // "lista" | "novo" | "jogo"
+  const [jogos,setJogos]=useState([]);
+  const [atual,setAtual]=useState(null);           // linha do supabase em andamento
+  const [carregando,setCarregando]=useState(true);
+  const [semTabela,setSemTabela]=useState(false);
+  // formulário de novo jogo
+  const [meta,setMeta]=useState(3000);
+  const [duplas,setDuplas]=useState([{id:"d1",nome:"Nós",jog:""},{id:"d2",nome:"Eles",jog:""}]);
+  // registro de mão
+  const [entrada,setEntrada]=useState({});         // {duplaId:"pontos"}
+  const [calcOn,setCalcOn]=useState("");           // duplaId com a calculadora aberta
+  const [calc,setCalc]=useState({});               // estado da calculadora
+  const [editMao,setEditMao]=useState(null);       // índice da mão em edição
+
+  const VAL={limpa:200,suja:100,bater:100,morto:100};
+
+  const carregar=async function(){
+    setCarregando(true);
+    var r=await sb.from("buraco_partidas").select("*").order("criado_em",{ascending:false});
+    if(r.error){ setCarregando(false); if((r.error.message||"").indexOf("buraco_partidas")>=0||r.error.code==="42P01"){setSemTabela(true);} else {toast(r.error.message);} return; }
+    setJogos(r.data||[]); setSemTabela(false); setCarregando(false);
+  };
+  useEffect(function(){ carregar(); },[]);
+
+  // ---------- pontuação ----------
+  function totais(jogo){ var t={}; (jogo.estado.duplas||[]).forEach(function(d){t[d.id]=0;}); (jogo.estado.maos||[]).forEach(function(m){ Object.keys(m.pontos||{}).forEach(function(k){ t[k]=(t[k]||0)+(Number(m.pontos[k])||0); }); }); return t; }
+  function lider(jogo){ var t=totais(jogo),mx=-1e12,quem=null,emp=false; Object.keys(t).forEach(function(k){ if(t[k]>mx){mx=t[k];quem=k;emp=false;} else if(t[k]===mx){emp=true;} }); return {quem:quem,pontos:mx,empate:emp}; }
+  function venceu(jogo){ var l=lider(jogo); return (l.pontos>=(jogo.estado.meta||3000) && !l.empate)?l.quem:null; }
+  function nomeDupla(jogo,id){ var d=(jogo.estado.duplas||[]).find(function(x){return x.id===id;}); return d?d.nome:"?"; }
+
+  // ---------- persistência ----------
+  async function persistir(row,novoEstado,patch){
+    var upd=Object.assign({estado:novoEstado},patch||{});
+    var r=await sb.from("buraco_partidas").update(upd).eq("id",row.id).select().single();
+    if(r.error){toast(r.error.message);return null;}
+    setAtual(r.data); setJogos(function(js){return js.map(function(j){return j.id===r.data.id?r.data:j;});});
+    return r.data;
+  }
+
+  async function criarJogo(){
+    var ds=duplas.filter(function(d){return (d.nome||"").trim();}).map(function(d,i){ return {id:d.id||("d"+(i+1)), nome:d.nome.trim(), jogadores:(d.jog||"").split(",").map(function(s){return s.trim();}).filter(Boolean)}; });
+    if(ds.length<2){toast("Cadastre pelo menos 2 duplas.");return;}
+    var estado={meta:Number(meta)||3000, duplas:ds, maos:[]};
+    var r=await sb.from("buraco_partidas").insert({titulo:ds.map(function(d){return d.nome;}).join(" × "),status:"ativo",vencedor:null,estado:estado}).select().single();
+    if(r.error){toast(r.error.message);return;}
+    setAtual(r.data); setEntrada({}); setVista("jogo"); carregar(); toast("Jogo criado 🃏");
+  }
+
+  function abrir(j){ setAtual(j); setEntrada({}); setEditMao(null); setCalcOn(""); setVista("jogo"); }
+
+  async function registrarMao(){
+    if(!atual)return;
+    var pontos={}; (atual.estado.duplas||[]).forEach(function(d){ pontos[d.id]=Math.round(Number(entrada[d.id])||0); });
+    var maos=(atual.estado.maos||[]).slice();
+    if(editMao!==null){ maos[editMao]=Object.assign({},maos[editMao],{pontos:pontos}); }
+    else { maos.push({pontos:pontos, ts:Date.now()}); }
+    var novo=Object.assign({},atual.estado,{maos:maos});
+    var vt=venceu({estado:novo}); var patch={};
+    var salvo=await persistir(atual,novo,patch);
+    if(salvo){ setEntrada({}); setEditMao(null); setCalcOn(""); toast(editMao!==null?"Mão atualizada":"Mão registrada ✍️"); }
+  }
+
+  function carregarMaoParaEdicao(idx){ var m=(atual.estado.maos||[])[idx]; var e={}; (atual.estado.duplas||[]).forEach(function(d){ e[d.id]=String(m.pontos[d.id]!=null?m.pontos[d.id]:""); }); setEntrada(e); setEditMao(idx); window.scrollTo(0,0); }
+  async function apagarMao(idx){ if(!window.confirm("Apagar esta mão?"))return; var maos=(atual.estado.maos||[]).slice(); maos.splice(idx,1); await persistir(atual,Object.assign({},atual.estado,{maos:maos})); toast("Mão apagada"); }
+  async function encerrar(){ var v=venceu(atual)||lider(atual).quem; await persistir(atual,atual.estado,{status:"encerrado",vencedor:v}); toast("Jogo encerrado 🏁"); }
+  async function reabrir(){ await persistir(atual,atual.estado,{status:"ativo",vencedor:null}); toast("Jogo reaberto"); }
+  async function apagarJogo(id){ if(!window.confirm("Apagar este jogo e todo o histórico dele?"))return; var r=await sb.from("buraco_partidas").delete().eq("id",id); if(r.error){toast(r.error.message);return;} if(atual&&atual.id===id){setAtual(null);setVista("lista");} carregar(); toast("Jogo apagado"); }
+
+  // ---------- calculadora assistida ----------
+  function calcSub(c){ c=c||{}; return (Number(c.limpas)||0)*VAL.limpa + (Number(c.sujas)||0)*VAL.suja + (c.bater?VAL.bater:0) - (c.semMorto?VAL.morto:0) + (Number(c.cartasMais)||0) - (Number(c.cartasMenos)||0); }
+  function setCalcCampo(did,campo,valor){ setCalc(function(cc){ var n=Object.assign({},cc); n[did]=Object.assign({},n[did]||{}); n[did][campo]=valor; return n; }); }
+  function aplicarCalc(did){ var v=calcSub(calc[did]); setEntrada(function(e){var n=Object.assign({},e);n[did]=String(v);return n;}); setCalcOn(""); }
+
+  // ---------- formulário de duplas (novo jogo) ----------
+  function upDupla(i,campo,v){ setDuplas(function(ds){var n=ds.slice();n[i]=Object.assign({},n[i],{[campo]:v});return n;}); }
+  function addDupla(){ setDuplas(function(ds){ if(ds.length>=4)return ds; return ds.concat([{id:"d"+(ds.length+1),nome:"Dupla "+(ds.length+1),jog:""}]); }); }
+  function rmDupla(i){ setDuplas(function(ds){ if(ds.length<=2)return ds; return ds.filter(function(_,ix){return ix!==i;}); }); }
+
+  // =========================================================
+  if(carregando) return html`<div className="wrap"><div className="note">Carregando…</div></div>`;
+
+  if(semTabela) return html`<div className="wrap">
+    <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:14}} onClick=${props.onSair}>← Jogos</button>
+    <div className="eyebrow">Placar de Buraco</div>
+    <div className="h1" style=${{marginBottom:6}}>🃏 Falta criar a tabela</div>
+    <div className="card" style=${{padding:16}}>
+      <div className="note" style=${{marginBottom:10}}>Rode este SQL no painel do Supabase (uma vez só) para ativar o placar:</div>
+      <pre style=${{whiteSpace:"pre-wrap",fontSize:11.5,fontFamily:"monospace",background:"#F6F1E9",padding:12,borderRadius:10,overflow:"auto"}}>${SQL_BURACO}</pre>
+      <button className="btn btn-primary" style=${{marginTop:12}} onClick=${carregar}>Já rodei — recarregar</button>
+    </div>
+  </div>`;
+
+  // ---------- NOVO JOGO ----------
+  if(vista==="novo") return html`<div className="wrap">
+    <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:14}} onClick=${function(){setVista("lista");}}>← Voltar</button>
+    <div className="eyebrow">Novo jogo</div>
+    <div className="h1" style=${{marginBottom:14}}>🃏 Montar a mesa</div>
+
+    <div className="card" style=${{padding:14,marginBottom:12}}>
+      <span className="label">Meta (pontos para vencer)</span>
+      <div style=${{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+        ${[1500,2000,3000].map(function(v){return html`<button key=${v} className=${"fchip"+(Number(meta)===v?" on":"")} onClick=${function(){setMeta(v);}}>${v}</button>`;})}
+      </div>
+      <input className="input" type="number" value=${meta} onChange=${function(e){setMeta(e.target.value);}}/>
+    </div>
+
+    <div className="eyebrow" style=${{marginBottom:8}}>Duplas</div>
+    <div style=${{display:"flex",flexDirection:"column",gap:10}}>
+      ${duplas.map(function(d,i){return html`<div key=${i} className="card" style=${{padding:12}}>
+        <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <span className="label" style=${{margin:0}}>Dupla ${i+1}</span>
+          ${duplas.length>2?html`<button onClick=${function(){rmDupla(i);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:14,cursor:"pointer"}}>remover</button>`:null}
+        </div>
+        <input className="input" style=${{marginBottom:8}} placeholder="Nome da dupla" value=${d.nome} onChange=${function(e){upDupla(i,"nome",e.target.value);}}/>
+        <input className="input" placeholder="Jogadores (separados por vírgula)" value=${d.jog} onChange=${function(e){upDupla(i,"jog",e.target.value);}}/>
+      </div>`;})}
+    </div>
+    ${duplas.length<4?html`<button className="btn btn-ghost" style=${{width:"100%",marginTop:10}} onClick=${addDupla}>+ Adicionar dupla</button>`:null}
+    <button className="btn btn-primary" style=${{marginTop:14}} onClick=${criarJogo}>Começar jogo</button>
+  </div>`;
+
+  // ---------- JOGO EM ANDAMENTO ----------
+  if(vista==="jogo" && atual){
+    var t=totais(atual); var l=lider(atual); var venc=atual.vencedor||venceu(atual); var metaJ=atual.estado.meta||3000; var encerrado=atual.status==="encerrado";
+    var ordenadas=(atual.estado.duplas||[]).slice().sort(function(a,b){return (t[b.id]||0)-(t[a.id]||0);});
+    return html`<div className="wrap">
+      <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:12}} onClick=${function(){setVista("lista");setAtual(null);}}>← Jogos salvos</button>
+      <div className="eyebrow">${encerrado?"Jogo encerrado":"Em andamento"} · meta ${metaJ}</div>
+      <div className="h1" style=${{marginBottom:4,fontSize:24}}>${atual.titulo}</div>
+
+      ${venc?html`<div className="card" style=${{padding:"14px 16px",margin:"12px 0",background:"linear-gradient(135deg,#FDEEE9,#E7F2F0)",display:"flex",alignItems:"center",gap:10}}>
+        <div style=${{fontSize:26}}>🏆</div><div><div style=${{fontWeight:800}}>${nomeDupla(atual,venc)} venceu!</div><div className="note">${t[venc]} pontos · meta ${metaJ}</div></div>
+      </div>`:null}
+
+      <!-- placar -->
+      <div style=${{display:"flex",flexDirection:"column",gap:10,margin:"14px 0"}}>
+        ${ordenadas.map(function(d){ var pct=Math.max(0,Math.min(100,Math.round(((t[d.id]||0)/metaJ)*100))); var isL=(l.quem===d.id&&!l.empate&&(atual.estado.maos||[]).length>0);
+          return html`<div key=${d.id} className="card" style=${{padding:"13px 15px",borderColor:isL?"#2E8B83":"#ECE3D8",borderWidth:isL?2:1}}>
+          <div style=${{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+            <div style=${{minWidth:0}}><div style=${{fontWeight:800,fontSize:16}}>${isL?"👑 ":""}${d.nome}</div>${d.jogadores&&d.jogadores.length?html`<div className="note" style=${{fontSize:11.5}}>${d.jogadores.join(" · ")}</div>`:null}</div>
+            <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:26,flex:"none"}}>${t[d.id]||0}</div>
+          </div>
+          <div style=${{height:7,background:"#F0EBE3",borderRadius:99,marginTop:9,overflow:"hidden"}}><div style=${{height:"100%",width:pct+"%",background:isL?"#2E8B83":"#B8AEC4",borderRadius:99}}></div></div>
+        </div>`; })}
+      </div>
+
+      <!-- registrar mão -->
+      ${!encerrado?html`<div className="card" style=${{padding:14,marginBottom:14}}>
+        <div style=${{fontWeight:700,marginBottom:2}}>${editMao!==null?"✏️ Editar mão "+(editMao+1):"✍️ Registrar mão "+((atual.estado.maos||[]).length+1)}</div>
+        <div className="note" style=${{marginBottom:10}}>Digite o total de cada dupla, ou toque em 🧮 para somar canastras e cartas.</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:10}}>
+          ${(atual.estado.duplas||[]).map(function(d){ return html`<div key=${d.id}>
+            <div style=${{display:"flex",gap:8,alignItems:"center"}}>
+              <div style=${{flex:1,minWidth:0}}><span className="label">${d.nome}</span><input className="input" type="number" value=${entrada[d.id]!=null?entrada[d.id]:""} placeholder="0" onChange=${function(e){var v=e.target.value;setEntrada(function(x){var n=Object.assign({},x);n[d.id]=v;return n;});}}/></div>
+              <button className="btn btn-ghost" style=${{flex:"none",padding:"11px 13px",marginTop:16}} onClick=${function(){setCalcOn(calcOn===d.id?"":d.id);}}>🧮</button>
+            </div>
+            ${calcOn===d.id?html`<div style=${{marginTop:8,padding:12,borderRadius:12,background:"#F6F1E9"}}>
+              <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div><span className="label">Canastras limpas (×200)</span><input className="input" type="number" value=${(calc[d.id]||{}).limpas||""} onChange=${function(e){setCalcCampo(d.id,"limpas",e.target.value);}}/></div>
+                <div><span className="label">Canastras sujas (×100)</span><input className="input" type="number" value=${(calc[d.id]||{}).sujas||""} onChange=${function(e){setCalcCampo(d.id,"sujas",e.target.value);}}/></div>
+                <div><span className="label">Cartas baixadas (+)</span><input className="input" type="number" value=${(calc[d.id]||{}).cartasMais||""} onChange=${function(e){setCalcCampo(d.id,"cartasMais",e.target.value);}}/></div>
+                <div><span className="label">Cartas na mão (−)</span><input className="input" type="number" value=${(calc[d.id]||{}).cartasMenos||""} onChange=${function(e){setCalcCampo(d.id,"cartasMenos",e.target.value);}}/></div>
+              </div>
+              <div style=${{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+                <button className=${"fchip"+((calc[d.id]||{}).bater?" on":"")} onClick=${function(){setCalcCampo(d.id,"bater",!(calc[d.id]||{}).bater);}}>Bateu (+100)</button>
+                <button className=${"fchip"+((calc[d.id]||{}).semMorto?" on":"")} onClick=${function(){setCalcCampo(d.id,"semMorto",!(calc[d.id]||{}).semMorto);}}>Não pegou o morto (−100)</button>
+              </div>
+              <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+                <div style=${{fontWeight:800,fontSize:18}}>${calcSub(calc[d.id])} pts</div>
+                <button className="btn btn-primary" style=${{width:"auto",padding:"9px 14px"}} onClick=${function(){aplicarCalc(d.id);}}>Aplicar</button>
+              </div>
+            </div>`:null}
+          </div>`; })}
+        </div>
+        <div style=${{display:"flex",gap:8,marginTop:12}}>
+          <button className="btn btn-primary" style=${{flex:1}} onClick=${registrarMao}>${editMao!==null?"Salvar alteração":"Adicionar mão"}</button>
+          ${editMao!==null?html`<button className="btn btn-ghost" onClick=${function(){setEntrada({});setEditMao(null);setCalcOn("");}}>Cancelar</button>`:null}
+        </div>
+      </div>`:null}
+
+      <!-- histórico de mãos -->
+      ${(atual.estado.maos||[]).length?html`<div style=${{marginBottom:16}}>
+        <div className="eyebrow" style=${{marginBottom:8}}>Mãos jogadas</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:6}}>
+          ${(atual.estado.maos||[]).map(function(m,idx){ return html`<div key=${idx} className="card" style=${{padding:"10px 12px"}}>
+            <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span className="chip" style=${{background:"#F0EBE3",color:"#6b6270"}}>Mão ${idx+1}</span>
+              ${!encerrado?html`<div style=${{display:"flex",gap:12}}><button onClick=${function(){carregarMaoParaEdicao(idx);}} style=${{border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#2E8B83",fontWeight:600}}>editar</button><button onClick=${function(){apagarMao(idx);}} style=${{border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#C64B33"}}>🗑</button></div>`:null}
+            </div>
+            <div style=${{display:"flex",flexWrap:"wrap",gap:10,marginTop:7}}>
+              ${(atual.estado.duplas||[]).map(function(d){return html`<span key=${d.id} style=${{fontSize:13}}><span className="note" style=${{fontSize:11.5}}>${d.nome}: </span><b>${m.pontos[d.id]||0}</b></span>`;})}
+            </div>
+          </div>`; })}
+        </div>
+      </div>`:null}
+
+      <div style=${{display:"flex",gap:8}}>
+        ${encerrado?html`<button className="btn btn-ghost" style=${{flex:1}} onClick=${reabrir}>Reabrir jogo</button>`:html`<button className="btn btn-ghost" style=${{flex:1}} onClick=${encerrar}>Encerrar jogo</button>`}
+        <button className="btn btn-ghost" onClick=${function(){apagarJogo(atual.id);}} style=${{color:"#C64B33"}}>Apagar</button>
+      </div>
+    </div>`;
+  }
+
+  // ---------- LISTA ----------
+  var ativos=jogos.filter(function(j){return j.status!=="encerrado";});
+  var encerrados=jogos.filter(function(j){return j.status==="encerrado";});
+  return html`<div className="wrap">
+    <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:12}} onClick=${props.onSair}>← Jogos</button>
+    <div className="eyebrow">Jogos de mesa</div>
+    <div className="h1" style=${{marginBottom:4}}>🃏 Placar de Buraco</div>
+    <div className="note" style=${{marginBottom:16}}>Marque as duplas e conte os pontos de cada mão automaticamente.</div>
+
+    <button className="capa-portal anim" style=${{background:"linear-gradient(150deg,#3E7C59,#2C5C42)",marginBottom:18}} onClick=${function(){setDuplas([{id:"d1",nome:"Nós",jog:""},{id:"d2",nome:"Eles",jog:""}]);setMeta(3000);setVista("novo");}}>
+      <div className="pt-bolha"></div><div className="pt-seta">→</div>
+      <div style=${{position:"relative",zIndex:1}}><div className="pt-emoji">🃏</div><div className="pt-tit">Novo jogo</div><div className="pt-desc">Montar mesa e definir a meta</div></div>
+    </button>
+
+    ${ativos.length?html`<div style=${{marginBottom:16}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Em andamento</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8}}>
+        ${ativos.map(function(j){ var tt=totais(j); var lm=lider(j); return html`<button key=${j.id} className="card" onClick=${function(){abrir(j);}} style=${{border:"none",cursor:"pointer",textAlign:"left",padding:"13px 15px"}}>
+          <div style=${{fontWeight:700,fontSize:15}}>${j.titulo}</div>
+          <div className="note" style=${{marginTop:3}}>${(j.estado.maos||[]).length} mão(s) · líder: ${lm.empate?"empate":nomeDupla(j,lm.quem)+" ("+lm.pontos+")"} · meta ${j.estado.meta||3000}</div>
+        </button>`; })}
+      </div>
+    </div>`:null}
+
+    ${encerrados.length?html`<div>
+      <div className="eyebrow" style=${{marginBottom:8}}>Histórico</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8}}>
+        ${encerrados.map(function(j){ var tt=totais(j); return html`<button key=${j.id} className="card" onClick=${function(){abrir(j);}} style=${{border:"none",cursor:"pointer",textAlign:"left",padding:"13px 15px",opacity:.9}}>
+          <div style=${{fontWeight:700,fontSize:15}}>🏆 ${j.vencedor?nomeDupla(j,j.vencedor):"—"}</div>
+          <div className="note" style=${{marginTop:3}}>${j.titulo} · ${new Date(j.criado_em).toLocaleDateString("pt-BR")}</div>
+        </button>`; })}
+      </div>
+    </div>`:null}
+
+    ${!ativos.length&&!encerrados.length?html`<div className="card" style=${{padding:"26px 18px",textAlign:"center"}}><div style=${{fontSize:32}}>🃏</div><div style=${{fontWeight:700,marginTop:8}}>Nenhum jogo ainda</div><div className="note" style=${{marginTop:6}}>Toque em "Novo jogo" para começar a contar.</div></div>`:null}
+  </div>`;
+}
+
 function Jogos(props){
   const [tela,setTela]=useState("casa");   // "casa" | id da criança
   const [jogoId,setJogoId]=useState(null);
@@ -1441,6 +1697,8 @@ function Jogos(props){
   function jogosDe(cid){ var base=(JOGOS_CATALOGO[cid]||[]).slice(); var imp=importados.filter(function(p){return p.crianca_id===cid;}).map(function(p){ return {id:"imp_"+p.id, tipo:"quiz", tit:p.titulo, materia:p.materia||"Prova", emoji:p.emoji||"📝", nivel:p.nivel||"Médio", tema:"padrao", desc:"Prova importada pelo papai", perguntas:p.perguntas||[], _impId:p.id}; }); return base.concat(imp); }
   async function salvarProva(cid,prev){ if(!prev||prev.erros.length||!prev.perguntas.length)return; var perguntas=prev.perguntas.map(function(p){return {q:p.q,op:p.op,c:p.c,materia:p.materia||prev.materia||"",exp:p.exp||""};}); var r=await sb.from("jogo_provas").insert({crianca_id:cid,titulo:prev.titulo||"Prova",materia:prev.materia||"",emoji:"📝",nivel:"Médio",perguntas:perguntas}); if(r.error){toast(r.error.message);return;} setImpAberto(false);setImpTxt("");setImpPreview(null);carregarProvas();toast("Prova importada! 📝"); }
   async function apagarProva(id){ if(!window.confirm("Apagar esta prova importada?"))return; var r=await sb.from("jogo_provas").delete().eq("id",id); if(r.error){toast(r.error.message);return;} carregarProvas(); }
+
+  if(tela==="buraco") return html`<${Buraco} papel=${props.papel} nome=${props.nome} toast=${toast} onSair=${function(){setTela("casa");}}/>`;
 
   if(tela!=="casa" && jogoId){
     const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
@@ -1499,9 +1757,14 @@ function Jogos(props){
   }
 
   return html`<div className="wrap">
-    <div className="eyebrow">Jogos Interativos</div>
-    <div className="h1" style=${{marginBottom:4}}>🎮 Aprender jogando</div>
-    <div className="note" style=${{marginBottom:18}}>Escolha quem vai jogar.</div>
+    <div className="eyebrow">Jogos</div>
+    <div className="h1" style=${{marginBottom:4}}>🎮 Jogar em família</div>
+    <div className="note" style=${{marginBottom:16}}>O quiz das crianças e o placar dos jogos de mesa.</div>
+    <button className="capa-portal anim" style=${{background:"linear-gradient(150deg,#3E7C59,#2C5C42)",marginBottom:20}} onClick=${function(){setTela("buraco");}}>
+      <div className="pt-bolha"></div><div className="pt-seta">→</div>
+      <div style=${{position:"relative",zIndex:1}}><div className="pt-emoji">🃏</div><div className="pt-tit">Placar de Buraco</div><div className="pt-desc">Contar pontos por dupla e por mão</div></div>
+    </button>
+    <div className="eyebrow" style=${{marginBottom:10}}>Jogos das crianças</div>
     <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
       ${CRIANCAS_JOGO.map(function(c,idx){ var qtd=jogosDe(c.id).length; return html`<button key=${c.id} className="capa-portal anim" style=${{animationDelay:(idx*0.08)+"s",background:c.cor,minHeight:152}} onClick=${function(){setTela(c.id);}}>
         <div className="pt-bolha"></div>
