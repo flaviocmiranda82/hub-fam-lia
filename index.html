@@ -90,11 +90,14 @@ const fLonga=(iso)=>{const d=pData(iso);return d?DIAS[d.getDay()]+", "+d.getDate
 const dAte=(iso)=>{const d=pData(iso);if(!d)return null;const h=new Date();h.setHours(0,0,0,0);return Math.round((d-h)/864e5);};
 const falta=(iso)=>{const n=dAte(iso);if(n===null)return"";if(n<0)return"já passou";if(n===0)return"é hoje";if(n===1)return"é amanhã";return"faltam "+n+" dias";};
 const corFalta=(iso)=>{const n=dAte(iso);if(n===null||n<0)return{bg:"#F0EBE3",fg:"#857A8C"};if(n<=2)return{bg:"#E6F4EA",fg:"#2F9E44"};if(n<=9)return{bg:"#FBF3DC",fg:"#C99A2E"};return{bg:"#E3EEF9",fg:"#2B6CB0"};};
+function semanaAtual(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+3-((d.getDay()+6)%7));const s=new Date(d.getFullYear(),0,4);const n=1+Math.round(((d-s)/864e5-3+((s.getDay()+6)%7))/7);return d.getFullYear()+"-W"+String(n).padStart(2,"0");}
+
 const solicitarPermissaoNotificacoes=async function(){if(!("Notification" in window)){return false;}if(Notification.permission==="granted"){return true;}if(Notification.permission!=="denied"){const perm=await Notification.requestPermission();return perm==="granted";}return false;};
 const enviarNotificacao=function(evento,tipo){if(Notification.permission!=="granted")return;const prefixo=tipo==="dias_antes"?"📅 Lembrete:":"🔔 Hoje:";const titulo=prefixo+" "+evento.titulo;const opcoes={body:evento.data?fCurta(evento.data)+(evento.inicio?" às "+evento.inicio:""):" ",icon:"./icon-192.png",badge:"./icon-192.png",tag:"evento-"+evento.id+"-"+tipo,requireInteraction:tipo==="mesmo_dia"};new Notification(titulo,opcoes);};
 const deveNotificar=function(evento,agora){const alertas=evento.alertas;if(!alertas||!alertas.ativado)return false;const dataEvento=pData(evento.data);if(!dataEvento)return false;const diasParaEvento=Math.floor((dataEvento-agora)/(1000*60*60*24));if(alertas.dias_antes!==null&&alertas.dias_antes!==undefined&&diasParaEvento===alertas.dias_antes){const horaAlerta=alertas.hora||"08:00";const parts=horaAlerta.split(":");const h=Number(parts[0]||0),m=Number(parts[1]||0);const agora_obj=new Date();if(agora_obj.getHours()>=h&&(agora_obj.getHours()>h||agora_obj.getMinutes()>=m)){return{tipo:"dias_antes",hora:horaAlerta};}}if(alertas.mesmo_dia&&diasParaEvento===0){const horaAlerta=alertas.hora||"08:00";const parts=horaAlerta.split(":");const h=Number(parts[0]||0),m=Number(parts[1]||0);const agora_obj=new Date();if(agora_obj.getHours()>=h){return{tipo:"mesmo_dia",hora:horaAlerta};}}return false;};
-const verificarAlertas=async function(eventos){const permissao=await solicitarPermissaoNotificacoes();if(!permissao)return;const agora=new Date();agora.setHours(0,0,0,0);const notificados=JSON.parse(localStorage.getItem("__alertas_notificados")||"{}");const hoje=new Date().toISOString().split("T")[0];Object.keys(notificados).forEach(function(chave){const data=notificados[chave];if(data&&data!==hoje){const dataParts=data.split("-");const dataNotif=new Date(Number(dataParts[0]),Number(dataParts[1])-1,Number(dataParts[2]));const diff=(new Date()-dataNotif)/(1000*60*60*24);if(diff>7)delete notificados[chave];}});eventos.forEach(function(evento){const deve=deveNotificar(evento,agora);if(deve){const chave=evento.id+"-"+deve.tipo;if(!notificados[chave]||notificados[chave]!==hoje){enviarNotificacao(evento,deve.tipo);notificados[chave]=hoje;}}});localStorage.setItem("__alertas_notificados",JSON.stringify(notificados));};
-function semanaAtual(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()+3-((d.getDay()+6)%7));const s=new Date(d.getFullYear(),0,4);const n=1+Math.round(((d-s)/864e5-3+((s.getDay()+6)%7))/7);return d.getFullYear()+"-W"+String(n).padStart(2,"0");}
+const verificarAlertas=async function(){if(!("Notification" in window)||Notification.permission!=="granted")return;const perm=await solicitarPermissaoNotificacoes();if(!perm)return;const agora=new Date();agora.setHours(0,0,0,0);const notificados=JSON.parse(localStorage.getItem("__alertas_notificados")||"{}");const hoje=new Date().toISOString().split("T")[0];Object.keys(notificados).forEach(function(chave){const data=notificados[chave];if(data&&data!==hoje){const dataParts=data.split("-");const dataNotif=new Date(Number(dataParts[0]),Number(dataParts[1])-1,Number(dataParts[2]));const diff=(new Date()-dataNotif)/(1000*60*60*24);if(diff>7)delete notificados[chave];}});if(window.__eventos_globais){window.__eventos_globais.forEach(function(evento){const deve=deveNotificar(evento,agora);if(deve){const chave=evento.id+"-"+deve.tipo;if(!notificados[chave]||notificados[chave]!==hoje){enviarNotificacao(evento,deve.tipo);notificados[chave]=hoje;}}});}localStorage.setItem("__alertas_notificados",JSON.stringify(notificados));};
+
+
 
 async function desenhar(ev){
   await (document.fonts?document.fonts.ready:Promise.resolve());
@@ -169,8 +172,8 @@ function Agenda(props){
   const toast=props.toast;
   const vazio={titulo:"",data:"",data_fim:"",inicio:"",fim:"",local:"",convidado:"",festa_infantil:false,responsavel:"",tipo:"evento",pai_id:null,repetir:"nao",dias_sem:[],ate:"",alertas:null};
   const [eventos,setEventos]=useState([]),[abrir,setAbrir]=useState(false),[n,setN]=useState(vazio),[lendo,setLendo]=useState(false),[editId,setEditId]=useState(null);
-  const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});var evs=(r.data||[]).slice().sort(function(a,b){var da=(a.data||"")+" "+(a.inicio||"99:99");var db=(b.data||"")+" "+(b.inicio||"99:99");return da<db?-1:da>db?1:0;});setEventos(evs);};
-  useEffect(function(){carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},carregar).subscribe();const intervalo=setInterval(function(){verificarAlertas(eventos);},60000);verificarAlertas(eventos);return function(){sb.removeChannel(ch);clearInterval(intervalo);};},[eventos]);
+  const carregar=async function(){const r=await sb.from("eventos").select("*").order("data").order("inicio",{nullsFirst:false});var evs=(r.data||[]).slice().sort(function(a,b){var da=(a.data||"")+" "+(a.inicio||"99:99");var db=(b.data||"")+" "+(b.inicio||"99:99");return da<db?-1:da>db?1:0;});setEventos(evs);window.__eventos_globais=evs;};
+  useEffect(function(){carregar();const ch=sb.channel("ev").on("postgres_changes",{event:"*",schema:"public",table:"eventos"},function(payload){carregar();}).subscribe();const interval=setInterval(function(){verificarAlertas();},60000);return function(){sb.removeChannel(ch);clearInterval(interval);};},[]);
   const ehViagem=function(ev){return ev.tipo==="viagem";};
   const faltaEv=function(ev){ if(ehViagem(ev)&&ev.data_fim){ var n0=dAte(ev.data),n1=dAte(ev.data_fim); if(n1===null)return falta(ev.data); if(n1<0)return"já passou"; if(n0!==null&&n0<=0)return"em andamento"; } return falta(ev.data); };
   const corFaltaEv=function(ev){ if(ehViagem(ev)&&ev.data_fim){ var n0=dAte(ev.data),n1=dAte(ev.data_fim); if(n1!==null&&n1<0)return{bg:"#F0EBE3",fg:"#857A8C"}; if(n0!==null&&n1!==null&&n0<=0&&n1>=0)return{bg:"#E6F4EA",fg:"#2F9E44"}; } return corFalta(ev.data); };
@@ -290,7 +293,6 @@ function Agenda(props){
                   ${n.repetir!=="nao"?html`<div style=${{marginTop:10}}><span className="label">Repetir até</span><input className="input" type="date" value=${n.ate} onChange=${function(e){up("ate",e.target.value);}}/></div>`:null}
                 </div>`:null}
               </div>`}
-            ${n.tipo!=="viagem"?html`<div><span className="label">Alertas</span><div style=${{display:"flex",flexDirection:"column",gap:10}}><label style=${{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked=${(n.alertas||{}).ativado||false} onChange=${function(e){up("alertas",Object.assign({},n.alertas||{ativado:false,dias_antes:null,mesmo_dia:false,hora:"08:00"},{ativado:e.target.checked}));}} style=${{cursor:"pointer"}}/><span style=${{fontSize:14}}>🔔 Ativar notificações</span></label>${((n.alertas||{}).ativado)?html`<div style=${{display:"flex",flexDirection:"column",gap:8}}><span className="label">Hora da notificação</span><input className="input" type="time" value=${{(n.alertas||{}).hora||"08:00"}} onChange=${function(e){up("alertas",Object.assign({},n.alertas||{},{hora:e.target.value}));}}/><span className="label">Notificar N dias antes</span><div style=${{display:"flex",gap:8,alignItems:"center"}}><input type="range" min="0" max="30" value=${{(n.alertas||{}).dias_antes!==null&&(n.alertas||{}).dias_antes!==undefined?(n.alertas||{}).dias_antes:0}} onChange=${function(e){up("alertas",Object.assign({},n.alertas||{},{dias_antes:Number(e.target.value)}));}} style=${{flex:1}}/><span style=${{minWidth:40,fontSize:13}}>${((n.alertas||{}).dias_antes!==null&&(n.alertas||{}).dias_antes!==undefined?(n.alertas||{}).dias_antes:0)} dias</span></div><label style=${{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}><input type="checkbox" checked=${{(n.alertas||{}).mesmo_dia||false}} onChange=${function(e){up("alertas",Object.assign({},n.alertas||{},{mesmo_dia:e.target.checked}));}} style=${{cursor:"pointer"}}/><span style=${{fontSize:13}}>✓ Também notificar no mesmo dia</span></label></div>`:null}</div></div>`:null}
             <div><span className="label">${n.tipo==="viagem"?"Destino":"Local"}</span><input className="input" value=${n.local} onChange=${function(e){up("local",e.target.value);}}/></div>
             ${n.tipo!=="viagem"?html`<div><span className="label">Convidado / aniversariante</span><input className="input" value=${n.convidado} onChange=${function(e){up("convidado",e.target.value);}}/></div>`:null}
             <div><span className="label">De quem é</span>
@@ -300,6 +302,30 @@ function Agenda(props){
               </div>
             </div>
             ${(n.festa_infantil&&n.tipo!=="viagem")?html`<div><span className="label">Quem leva / busca</span><input className="input" value=${n.responsavel} onChange=${function(e){up("responsavel",e.target.value);}}/></div>`:null}
+                        ${n.tipo!=="viagem"?html`<div><span className="label">🔔 Alertas</span>
+              <div style=${{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:"#FBF6EF",borderRadius:11}}>
+                <div style=${{display:"flex",gap:8,alignItems:"center"}}>
+                  <input type="checkbox" checked=${n.alertas&&n.alertas.ativado||false} onChange=${function(e){var a=n.alertas||{hora:"08:00",dias_antes:2,mesmo_dia:false};a.ativado=e.target.checked;up("alertas",a);}} style=${{cursor:"pointer"}}/>
+                  <span style=${{fontSize:14}}>Ativar notificações</span>
+                </div>
+                ${(n.alertas&&n.alertas.ativado)?html`<div style=${{display:"flex",flexDirection:"column",gap:8}}>
+                  <div>
+                    <div className="label" style=${{marginBottom:4}}>Hora do alerta</div>
+                    <input type="time" value=${n.alertas.hora||"08:00"} onChange=${function(e){var a=n.alertas||{dias_antes:2,mesmo_dia:false};a.hora=e.target.value;up("alertas",a);}} className="input" style=${{width:"100%"}}/>
+                  </div>
+                  <div>
+                    <div className="label" style=${{marginBottom:4}}>Dias antes (${n.alertas.dias_antes||0})</div>
+                    <input type="range" min="0" max="30" value=${n.alertas.dias_antes||0} onChange=${function(e){var a=n.alertas||{hora:"08:00",mesmo_dia:false};a.dias_antes=Number(e.target.value);up("alertas",a);}} style=${{width:"100%",cursor:"pointer"}}/>
+                  </div>
+                  <div style=${{display:"flex",gap:8,alignItems:"center"}}>
+                    <input type="checkbox" checked=${n.alertas.mesmo_dia||false} onChange=${function(e){var a=n.alertas||{hora:"08:00",dias_antes:2};a.mesmo_dia=e.target.checked;up("alertas",a);}} style=${{cursor:"pointer"}}/>
+                    <span style=${{fontSize:13}}>Também no mesmo dia do evento</span>
+                  </div>
+                  <div className="note" style=${{fontSize:12,margin:0}}>💡 O navegador enviará notificações para este evento.</div>
+                </div>`:null}
+              </div>
+            </div>`:null}
+
             <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} onClick=${salvar}>${editId?"Salvar alterações":"Guardar"}</button><button className="btn btn-ghost" onClick=${function(){setAbrir(false);setEditId(null);setN(vazio);}}>Cancelar</button></div>
           </div>`}
       <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"22px 2px 12px"}}>
