@@ -397,6 +397,62 @@ function Pote(props){
 
 function hojeLocal(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 
+// ===== Importação de extrato bancário (OFX / CSV — Banco Inter e genérico) =====
+const CAT_AJUSTE="⚖️ Ajuste", CAT_PEND="❓ A classificar";
+const REGRAS_CAT=[
+  ["⚽ Figurinhas",["panini","figurinh","banca de jornal","bancas"]],
+  ["🍦 Comida",["lanch","padaria","panific","sorvet","gelato","ifood","mcdonald","mc donald","burger","bk ","pizza","cafe","cafeter","doce","bombon","cantina","restaur","acai","pastel","chocolate","cacau","kopenhagen","supermerc","mercado","hortifruti","subway","popeyes","starbucks","padoca"]],
+  ["🧸 Brinquedos",["brinq","ri happy","rihappy","pbkids","pb kids","lego","roblox","steam","playstation","nintendo","xbox","google play","app store","apple.com","livraria","papelaria","kalunga"]],
+  ["👕 Roupas",["renner","riachuelo","c&a","cea ","zara","shein","hering","marisa","calcad","roupa","tenis","centauro","netshoes","havaianas","youcom","pernambucanas"]],
+  ["🎢 Passeios",["cinema","cinemark","cinepolis","ingresso","sympla","parque","teatro","boliche","uber","99app","99 pop","museu"]],
+  ["🎁 Presentes",["presente","florista","floricultura","boticario","natura","o boticario","eudora"]]
+];
+function semAcento(s){return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();}
+function sugerirCat(desc){var d=" "+semAcento(desc)+" ";for(var i=0;i<REGRAS_CAT.length;i++){var r=REGRAS_CAT[i];for(var j=0;j<r[1].length;j++){if(d.indexOf(r[1][j])>=0)return r[0];}}return CAT_PEND;}
+function numBR(s){s=String(s==null?"":s).trim().replace(/R\$/gi,"").replace(/\s/g,"");if(!s)return NaN;var neg=/^-|-$|^\(.*\)$/.test(s)||/^−/.test(s);s=s.replace(/[()\-−+]/g,"");if(s.indexOf(",")>=0)s=s.replace(/\./g,"").replace(",",".");var n=Number(s);return isFinite(n)?(neg?-n:n):NaN;}
+function dataBR(s){s=String(s||"").trim();var m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);if(m)return m[3]+"-"+m[2]+"-"+m[1];m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+"-"+m[2]+"-"+m[3];m=s.match(/^(\d{4})(\d{2})(\d{2})/);if(m)return m[1]+"-"+m[2]+"-"+m[3];return null;}
+function desEnt(s){return String(s||"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/\s+/g," ").trim();}
+function lerOFX(txt){
+  var out=[];
+  txt.split(/<STMTTRN>/i).slice(1).forEach(function(b){
+    b=b.split(/<\/STMTTRN>/i)[0];
+    var g=function(t){var m=b.match(new RegExp("<"+t+">([^<\\r\\n]*)","i"));return m?m[1].trim():"";};
+    var v=numBR(g("TRNAMT")), d=dataBR(g("DTPOSTED"));
+    if(!isFinite(v)||v===0||!d)return;
+    out.push({data:d,valor:v,descricao:desEnt(g("MEMO")||g("NAME")||"Lançamento")});
+  });
+  var saldo=null, lb=txt.match(/<LEDGERBAL>([\s\S]{0,400})/i);
+  if(lb){var ba=lb[1].match(/<BALAMT>([^<\r\n]*)/i),dt=lb[1].match(/<DTASOF>([^<\r\n]*)/i);if(ba&&isFinite(numBR(ba[1])))saldo={valor:numBR(ba[1]),data:dt?dataBR(dt[1]):null};}
+  return {trs:out,saldo:saldo};
+}
+function splitLinha(l,sep){var out=[],cur="",q=false;for(var i=0;i<l.length;i++){var c=l[i];if(c==='"'){if(q&&l[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===sep&&!q){out.push(cur);cur="";}else cur+=c;}out.push(cur);return out.map(function(x){return x.trim();});}
+function lerCSV(txt){
+  var linhas=txt.replace(/^﻿/,"").split(/\r?\n/);
+  var sep=(txt.split(";").length>=txt.split(",").length)?";":",";
+  var hi=-1,cols=null,saldo=null;
+  for(var i=0;i<linhas.length;i++){
+    var c=splitLinha(linhas[i],sep).map(semAcento);
+    if(c.some(function(x){return x.indexOf("data")===0;})&&c.some(function(x){return x.indexOf("valor")===0;})){hi=i;cols=c;break;}
+    if(c[0]&&c[0].indexOf("saldo")===0&&c[1]&&isFinite(numBR(c[1])))saldo={valor:numBR(c[1]),data:null};
+  }
+  if(hi<0)throw new Error("Não achei o cabeçalho com as colunas Data e Valor.");
+  var iD=cols.findIndex(function(x){return x.indexOf("data")===0;}), iV=cols.findIndex(function(x){return x.indexOf("valor")===0;});
+  var iDs=[];cols.forEach(function(x,k){if(x.indexOf("descri")>=0||x.indexOf("hist")>=0||x.indexOf("lancamento")===0||x.indexOf("estabelec")>=0)iDs.push(k);});
+  var out=[];
+  for(var r=hi+1;r<linhas.length;r++){
+    if(!linhas[r].trim())continue;
+    var c2=splitLinha(linhas[r],sep), d=dataBR(c2[iD]), v=numBR(c2[iV]);
+    if(!d||!isFinite(v)||v===0)continue;
+    var ds=iDs.map(function(k){return c2[k]||"";}).filter(Boolean).join(" · ");
+    out.push({data:d,valor:v,descricao:desEnt(ds||"Lançamento")});
+  }
+  return {trs:out,saldo:saldo};
+}
+function decodArq(buf){try{return new TextDecoder("utf-8",{fatal:true}).decode(buf);}catch(e){return new TextDecoder("windows-1252").decode(buf);}}
+function lerExtrato(txt){var t=/<OFX>|<STMTTRN>/i.test(txt)?lerOFX(txt):lerCSV(txt);if(!t.trs.length)throw new Error("Nenhum lançamento encontrado no arquivo.");return t;}
+// chave estável por filha+data+valor+ordem no dia: não depende do formato (OFX/CSV) nem da descrição
+function chavesExtrato(nome,trs){var cont={};return trs.map(function(t){var k=t.data+"|"+Math.abs(t.valor).toFixed(2)+"|"+(t.valor<0?"s":"e");cont[k]=(cont[k]||0)+1;return nome+"|"+k+"|"+cont[k];});}
+
 function Missoes(props){
   const toast=props.toast, papel=props.papel;
   const semana=semanaAtual(), pai=(papel==="pai"||papel==="mae"), hoje=hojeLocal();
@@ -921,6 +977,7 @@ function Carteira(props){
   const [movs,setMovs]=useState([]),[membrosL,setMembrosL]=useState([]);
   const [filhaAtiva,setFilhaAtiva]=useState(""),[form,setForm]=useState(null),[lendo,setLendo]=useState(false);
   const [mesadaCalc,setMesadaCalc]=useState(null);
+  const [imp,setImp]=useState(null),[importando,setImportando]=useState(false),[editCat,setEditCat]=useState(null);
   const carregar=async function(){const r=await sb.from("carteira").select("*").order("data",{ascending:false}).order("criado_em",{ascending:false});setMovs(r.data||[]);};
   useEffect(function(){carregar();sb.from("membros").select("nome,papel").then(function(r){setMembrosL(r.data||[]);});},[]);
   const filhas=[]; membrosL.forEach(function(mm){ if(mm.papel==="filha"&&mm.nome&&filhas.indexOf(mm.nome)<0)filhas.push(mm.nome); });
@@ -952,6 +1009,45 @@ function Carteira(props){
     const r=await sb.from("carteira").insert({nome:filhaAtiva,tipo:form.tipo,descricao:form.descricao,valor:v,data:form.data||hojeLocal(),categoria:form.tipo==="gasto"?(form.categoria||"📦 Outros"):null});
     if(r.error)toast(r.error.message); else{setForm(null);carregar();toast(form.tipo==="entrada"?"Entrada registrada 💵":"Gasto registrado 🧾");} }
   async function apagarMov(id){ await sb.from("carteira").delete().eq("id",id); carregar(); }
+
+  async function abrirExtrato(e){ const file=e.target.files&&e.target.files[0]; if(!file)return;
+    try{
+      if(!filhaAtiva)throw new Error("Escolha a filha antes de importar.");
+      const txt=decodArq(await file.arrayBuffer()); const t=lerExtrato(txt);
+      const ks=chavesExtrato(filhaAtiva,t.trs);
+      const existentes={}; movs.forEach(function(m){ if(m.ext_id)existentes[m.ext_id]=1; });
+      const manuais=movs.filter(function(m){return m.nome===filhaAtiva&&!m.ext_id&&m.origem!=="ajuste";}); const usados={};
+      const itens=t.trs.map(function(tr,i){
+        var tipo=tr.valor<0?"gasto":"entrada", v=Math.abs(tr.valor), dup=!!existentes[ks[i]], par=null;
+        if(!dup){ par=manuais.find(function(m){ if(usados[m.id]||m.tipo!==tipo||Math.abs(Number(m.valor)-v)>0.009)return false; var dd=Math.abs((pData(m.data)-pData(tr.data))/864e5); return dd<=3; })||null; if(par)usados[par.id]=1; }
+        return {k:ks[i],data:tr.data,valor:v,tipo:tipo,descricao:par?par.descricao:tr.descricao,banco:tr.descricao,categoria:tipo==="gasto"?((par&&par.categoria)||sugerirCat(tr.descricao)):null,dup:dup,par:par,sel:!dup};
+      }).sort(function(a,b){return a.data<b.data?1:a.data>b.data?-1:0;});
+      const primeira=!movs.some(function(m){return m.nome===filhaAtiva&&m.ext_id;});
+      setImp({arquivo:file.name,itens:itens,saldo:t.saldo,ajustar:primeira&&!!t.saldo});
+    }catch(err){ toast("Não consegui ler o extrato: "+String((err&&err.message)||err).slice(0,140)); }
+    finally{ e.target.value=""; }
+  }
+  const upItem=function(i,k,v){setImp(function(p){var its=p.itens.slice();its[i]=Object.assign({},its[i]);its[i][k]=v;return Object.assign({},p,{itens:its});});};
+  var impCalc=null;
+  if(imp){ var selI=imp.itens.filter(function(x){return x.sel&&!x.dup;}); var rem={}; selI.forEach(function(x){if(x.par)rem[x.par.id]=1;});
+    var sApp=0; movsF.forEach(function(m){ if(rem[m.id])return; sApp+=(m.tipo==="entrada"?1:-1)*Number(m.valor); }); selI.forEach(function(x){ sApp+=(x.tipo==="entrada"?1:-1)*x.valor; });
+    var diff=imp.saldo?Math.round((imp.saldo.valor-sApp)*100)/100:0;
+    impCalc={sel:selI,rem:Object.keys(rem),sApp:sApp,diff:diff,nDup:imp.itens.filter(function(x){return x.dup;}).length,
+      ini:imp.itens.length?imp.itens[imp.itens.length-1].data:null,fim:imp.itens.length?imp.itens[0].data:null}; }
+  async function confirmarImport(){ if(!imp||!impCalc)return; if(!impCalc.sel.length&&!(imp.ajustar&&impCalc.diff)){toast("Nada selecionado para importar.");return;}
+    setImportando(true);
+    try{
+      var rows=impCalc.sel.map(function(x){return {nome:filhaAtiva,tipo:x.tipo,descricao:x.descricao||x.banco,valor:x.valor,data:x.data,categoria:x.tipo==="gasto"?(x.categoria||CAT_PEND):null,origem:"extrato",ext_id:x.k};});
+      if(imp.ajustar&&impCalc.diff){ rows.push({nome:filhaAtiva,tipo:impCalc.diff>0?"entrada":"gasto",descricao:"Ajuste de saldo (banco)",valor:Math.abs(impCalc.diff),data:(imp.saldo&&imp.saldo.data)||impCalc.fim||hojeLocal(),categoria:impCalc.diff>0?null:CAT_AJUSTE,origem:"ajuste",ext_id:null}); }
+      var r=await sb.from("carteira").upsert(rows,{onConflict:"ext_id",ignoreDuplicates:true});
+      if(r.error)throw r.error;
+      if(impCalc.rem.length){ var d=await sb.from("carteira").delete().in("id",impCalc.rem); if(d.error)toast("Importado, mas não removi os lançamentos manuais duplicados: "+d.error.message); }
+      toast(impCalc.sel.length+" lançamentos importados 🏦"); setImp(null); carregar();
+    }catch(err){ var em=String((err&&err.message)||err||""); if(em.indexOf("ext_id")>=0||em.indexOf("origem")>=0||em.indexOf("constraint")>=0){toast("Falta preparar a tabela carteira no Supabase (SQL da importação).");}else toast("Falha ao importar: "+em.slice(0,140)); }
+    finally{ setImportando(false); }
+  }
+  async function mudarCat(m,c){ setEditCat(null); var r=await sb.from("carteira").update({categoria:c}).eq("id",m.id); if(r.error){toast("Não consegui salvar a categoria: "+r.error.message);return;} carregar(); }
+  const nPend=movsF.filter(function(m){return m.tipo==="gasto"&&m.categoria===CAT_PEND;}).length;
 
   async function prepImg(file){const bmp=await createImageBitmap(file);const max=2000;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.88);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
   async function lerGasto(e){ const file=e.target.files&&e.target.files[0]; if(!file)return; setLendo(true);
@@ -986,7 +1082,29 @@ function Carteira(props){
           <button className="btn btn-ghost" style=${{flex:1}} disabled=${lendo} onClick=${function(){document.getElementById("gastoFile").click();}}>${lendo?"Lendo…":"📷 Gasto por foto"}</button>
         </div>
         <input id="gastoFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${lerGasto}/>
+        ${pai?html`<button key="bImp" className="btn btn-ghost" style=${{border:"1.5px dashed "+COR.pais,color:COR.pais}} onClick=${function(){document.getElementById("extratoFile").click();}}>🏦 Importar extrato do banco (OFX ou CSV)</button>
+        <input key="iImp" id="extratoFile" type="file" accept=".ofx,.OFX,.csv,.CSV,.txt,text/csv" style=${{display:"none"}} onChange=${abrirExtrato}/>`:null}
       </div>
+
+      ${imp&&impCalc?html`<div className="card" style=${{padding:16,marginTop:12,border:"2px solid "+COR.pais,display:"flex",flexDirection:"column",gap:10}}>
+        <div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif"}}>🏦 Revisar extrato · ${filhaAtiva}</div>
+        <div className="note" style=${{fontSize:12}}>${imp.arquivo} · ${imp.itens.length} lançamentos${impCalc.ini?(" · "+fCurta(impCalc.ini)+" a "+fCurta(impCalc.fim)):""}${impCalc.nDup?(" · "+impCalc.nDup+" já importados"):""}</div>
+        <div style=${{padding:"8px 12px",borderRadius:12,background:COR.meninasBg,color:COR.meninas,fontSize:12.5,fontWeight:600}}>Confira: este extrato é mesmo da conta de ${filhaAtiva}?</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:6,maxHeight:380,overflowY:"auto"}}>${imp.itens.map(function(x,i){var ent=(x.tipo==="entrada");return html`<div key=${x.k} style=${{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 10px",borderRadius:12,background:"#FAF6F0",opacity:x.dup?0.45:1}}>
+          <input type="checkbox" style=${{marginTop:3}} disabled=${x.dup} checked=${x.sel&&!x.dup} onChange=${function(e){upItem(i,"sel",e.target.checked);}}/>
+          <div style=${{flex:1,minWidth:0}}>
+            <div style=${{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${x.descricao}</div>
+            <div className="note" style=${{fontSize:11}}>${fCurta(x.data)}${x.dup?" · já importado":""}${x.par?(" · substitui lançamento manual"):""}${x.par&&x.banco!==x.descricao?(" · banco: "+x.banco):""}</div>
+            ${!ent&&!x.dup?html`<select className="input" style=${{marginTop:5,padding:"5px 8px",fontSize:12,width:"100%",boxSizing:"border-box"}} value=${x.categoria} onChange=${function(e){upItem(i,"categoria",e.target.value);}}>${[CAT_PEND].concat(CATG).map(function(c){return html`<option key=${c} value=${c}>${c}</option>`;})}</select>`:null}
+          </div>
+          <div style=${{fontWeight:800,fontFamily:"'Space Mono',monospace",fontSize:12.5,color:ent?COR.pais:COR.meninas,flexShrink:0}}>${ent?"+":"−"}${fmtR(x.valor)}</div>
+        </div>`;})}</div>
+        ${imp.saldo?html`<div style=${{padding:"10px 12px",borderRadius:12,background:COR.paisBg,fontSize:12.5,display:"flex",flexDirection:"column",gap:6}}>
+          <div>Saldo no banco${imp.saldo.data?(" ("+fCurta(imp.saldo.data)+")"):""}: <b>${fmtR(imp.saldo.valor)}</b> · no app após importar: <b>${fmtR(impCalc.sApp)}</b></div>
+          ${impCalc.diff?html`<label style=${{display:"flex",gap:8,alignItems:"flex-start"}}><input type="checkbox" checked=${imp.ajustar} onChange=${function(e){setImp(Object.assign({},imp,{ajustar:e.target.checked}));}}/><span>Criar ajuste de ${fmtR(Math.abs(impCalc.diff))} para o app bater com o banco <span className="note">(use na 1ª importação; se ela tem dinheiro em espécie registrado, deixe desmarcado)</span></span></label>`:html`<div style=${{color:COR.pais,fontWeight:700}}>✓ Saldo do app bate com o banco</div>`}
+        </div>`:null}
+        <div style=${{display:"flex",gap:8}}><button className="btn btn-primary" style=${{flex:1}} disabled=${importando} onClick=${confirmarImport}>${importando?"Importando…":("Importar "+impCalc.sel.length+" lançamentos")}</button><button className="btn btn-ghost" onClick=${function(){setImp(null);}}>Cancelar</button></div>
+      </div>`:null}
 
       ${form?html`<div className="card" style=${{padding:16,marginTop:12,display:"flex",flexDirection:"column",gap:12,border:"2px solid "+(form.tipo==="entrada"?COR.pais:COR.meninas)}}>
         <div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif"}}>${form.tipo==="entrada"?"💵 Nova entrada":"🧾 Novo gasto"} · ${filhaAtiva}</div>
@@ -1000,12 +1118,14 @@ function Carteira(props){
       </div>`:null}
 
       <div className="eyebrow" style=${{margin:"22px 2px 10px"}}>Extrato</div>
+      ${nPend>0?html`<div className="card" style=${{padding:"10px 13px",marginBottom:8,background:"#FBF3DC",color:"#8A6A1C",fontSize:13,fontWeight:600}}>❓ ${nPend} ${nPend===1?"gasto do banco precisa":"gastos do banco precisam"} de categoria — toque na categoria para classificar.</div>`:null}
       ${movsF.length===0?html`<div className="card" style=${{padding:22,textAlign:"center"}}><div style=${{fontSize:26}}>🪙</div><div style=${{fontWeight:700,fontFamily:"'Bricolage Grotesque',sans-serif",marginTop:4}}>Nada por aqui ainda</div><div className="note" style=${{marginTop:4}}>${pai?"Registre a primeira semanada.":"Seus lançamentos vão aparecer aqui."}</div></div>`
       :html`<div style=${{display:"flex",flexDirection:"column",gap:7}}>${movsF.map(function(m){var ent=(m.tipo==="entrada");return html`<div key=${m.id} className="card" style=${{display:"flex",alignItems:"center",gap:10,padding:"10px 13px"}}>
         <span style=${{fontSize:17,flexShrink:0}}>${ent?"🟢":"🔴"}</span>
         <div style=${{flex:1,minWidth:0}}>
           <div style=${{fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${m.descricao}</div>
-          <div className="note" style=${{fontSize:11.5}}>${fCurta(m.data)}${m.categoria?(" · "+m.categoria):""}</div>
+          <div className="note" style=${{fontSize:11.5}}>${m.origem==="extrato"?"🏦 ":""}${fCurta(m.data)}${m.categoria?html` · <span key="cat" style=${{cursor:m.tipo==="gasto"?"pointer":"default",textDecoration:m.tipo==="gasto"?"underline dotted":"none",color:m.categoria===CAT_PEND?"#C99A2E":"inherit",fontWeight:m.categoria===CAT_PEND?700:"inherit"}} onClick=${function(){if(m.tipo==="gasto"&&m.categoria!==CAT_AJUSTE)setEditCat(editCat===m.id?null:m.id);}}>${m.categoria}</span>`:""}</div>
+          ${editCat===m.id?html`<div style=${{display:"flex",gap:5,flexWrap:"wrap",marginTop:7}}>${CATG.map(function(c){return html`<button key=${c} type="button" className=${"fchip"+(m.categoria===c?" on":"")} style=${{padding:"5px 9px",fontSize:11.5}} onClick=${function(){mudarCat(m,c);}}>${c}</button>`;})}</div>`:null}
         </div>
         <div style=${{fontWeight:800,fontFamily:"'Space Mono',monospace",fontSize:13.5,color:ent?COR.pais:COR.meninas,flexShrink:0}}>${ent?"+":"−"}${fmtR(m.valor)}</div>
         ${pai?html`<button className="btn btn-ghost" style=${{padding:"4px 8px",fontSize:12,flexShrink:0}} onClick=${function(){apagarMov(m.id);}}>×</button>`:null}
