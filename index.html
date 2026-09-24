@@ -1951,8 +1951,6 @@ function CacaTesouro(props){
   const [etapaDica,setEtapaDica]=useState("");
   const [etapaCodigo,setEtapaCodigo]=useState("");
   const [etapaFotoOrig,setEtapaFotoOrig]=useState(null);
-  const [etapaFotoAnime,setEtapaFotoAnime]=useState(null);
-  const [gerandoAnime,setGerandoAnime]=useState(false);
   const [salvandoEtapa,setSalvandoEtapa]=useState(false);
 
   const [codigoDigitado,setCodigoDigitado]=useState("");
@@ -2035,32 +2033,8 @@ function CacaTesouro(props){
     var file=e.target.files&&e.target.files[0]; if(!file)return;
     try{
       var img=await prepImgCT(file);
-      setEtapaFotoOrig(img); setEtapaFotoAnime(null);
-      setGerandoAnime(true);
-      var r=await sb.functions.invoke("ct-gerar-anime",{body:{imagem:img.base64,mediaType:img.mediaType}});
-      if(r.error){
-        var msgReal=r.error.message;
-        try{ if(r.error.context&&typeof r.error.context.json==="function"){ var corpo=await r.error.context.json(); if(corpo&&corpo.error)msgReal=corpo.error; } }catch(_e){}
-        throw new Error(msgReal);
-      }
-      var d=r.data||{};
-      if(d.error)throw new Error(d.error);
-      if(!d.imagem)throw new Error("resposta sem imagem");
-      setEtapaFotoAnime({base64:d.imagem,mediaType:d.mediaType||"image/jpeg"});
-    }catch(err){
-      var em=String((err&&err.message)||err||"");
-      if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ct-gerar-anime não foi encontrada no Supabase. Faça o deploy dela.");}
-      else{toast("Não consegui transformar em anime ("+em.slice(0,80)+"). Vou salvar com a foto original.");}
-    }finally{ setGerandoAnime(false); e.target.value=""; }
-  }
-
-  async function escolherFotoAnimeManual(e){
-    var file=e.target.files&&e.target.files[0]; if(!file)return;
-    try{
-      var img=await prepImgCT(file);
-      setEtapaFotoAnime(img);
-      toast("Foto anime enviada 🎨");
-    }catch(err){ toast("Não consegui ler essa imagem. Tente outra."); }
+      setEtapaFotoOrig(img);
+    }catch(err){ toast("Não consegui ler essa foto. Tente outra."); }
     finally{ e.target.value=""; }
   }
 
@@ -2077,16 +2051,9 @@ function CacaTesouro(props){
       var upO=await sb.storage.from("ct-fotos").upload(caminho+"-original.jpg",origBlob,{contentType:etapaFotoOrig.mediaType,upsert:true});
       if(upO.error)throw upO.error;
       var urlO=sb.storage.from("ct-fotos").getPublicUrl(caminho+"-original.jpg").data.publicUrl;
-      var urlA=urlO;
-      if(etapaFotoAnime){
-        var animeBlob=b64ToBlobCT(etapaFotoAnime.base64,etapaFotoAnime.mediaType);
-        var upA=await sb.storage.from("ct-fotos").upload(caminho+"-anime.jpg",animeBlob,{contentType:etapaFotoAnime.mediaType,upsert:true});
-        if(upA.error)throw upA.error;
-        urlA=sb.storage.from("ct-fotos").getPublicUrl(caminho+"-anime.jpg").data.publicUrl;
-      }
-      var r=await sb.from("ct_etapas").insert({caca_id:cacaAtual.id,grupo_id:etapaGrupoSel,ordem:proximaOrdem,dica:etapaDica.trim(),codigo:etapaCodigo.trim().toUpperCase(),foto_original_url:urlO,foto_anime_url:urlA});
+      var r=await sb.from("ct_etapas").insert({caca_id:cacaAtual.id,grupo_id:etapaGrupoSel,ordem:proximaOrdem,dica:etapaDica.trim(),codigo:etapaCodigo.trim().toUpperCase(),foto_original_url:urlO,foto_anime_url:urlO});
       if(r.error)throw r.error;
-      setEtapaDica(""); setEtapaCodigo(""); setEtapaFotoOrig(null); setEtapaFotoAnime(null);
+      setEtapaDica(""); setEtapaCodigo(""); setEtapaFotoOrig(null);
       carregarDetalhe(cacaAtual);
       toast("Pista "+proximaOrdem+" salva 🧩");
     }catch(err){ toast("Erro ao salvar: "+String((err&&err.message)||err).slice(0,120)); }
@@ -2223,10 +2190,8 @@ function CacaTesouro(props){
           <input className="input" style=${{marginBottom:10,textTransform:"uppercase"}} placeholder="Código do papel escondido neste local" value=${etapaCodigo} onChange=${function(e){setEtapaCodigo(e.target.value);}}/>
           <input id="ctFotoEtapa" type="file" accept="image/*" capture="environment" style=${{display:"none"}} onChange=${escolherFotoEtapa}/>
           <button className="btn btn-ghost" style=${{width:"100%",marginBottom:10}} onClick=${function(){document.getElementById("ctFotoEtapa").click();}}>📷 ${etapaFotoOrig?"Trocar foto do local":"Tirar foto do local"}</button>
-          ${gerandoAnime?html`<div className="note" style=${{marginBottom:10}}>Transformando em anime… ⏳</div>`:null}
-          ${etapaFotoOrig&&!gerandoAnime?html`<input id="ctFotoAnimeManual" type="file" accept="image/*" style=${{display:"none"}} onChange=${escolherFotoAnimeManual}/><button className="btn btn-ghost" style=${{width:"100%",marginBottom:10}} onClick=${function(){document.getElementById("ctFotoAnimeManual").click();}}>🎨 ${etapaFotoAnime?"Trocar pela versão anime (de outro app)":"Enviar versão anime pronta (de outro app)"}</button>`:null}
-          ${etapaFotoAnime?html`<img src=${"data:"+etapaFotoAnime.mediaType+";base64,"+etapaFotoAnime.base64} style=${{width:"100%",borderRadius:12,marginBottom:10}}/>`:etapaFotoOrig&&!gerandoAnime?html`<img src=${"data:"+etapaFotoOrig.mediaType+";base64,"+etapaFotoOrig.base64} style=${{width:"100%",borderRadius:12,marginBottom:10}}/>`:null}
-          <button className="btn btn-primary" style=${{width:"100%"}} disabled=${salvandoEtapa||gerandoAnime} onClick=${salvarEtapa}>${salvandoEtapa?"Salvando…":"Salvar pista"}</button>
+          ${etapaFotoOrig?html`<img src=${"data:"+etapaFotoOrig.mediaType+";base64,"+etapaFotoOrig.base64} style=${{width:"100%",borderRadius:12,marginBottom:10}}/>`:null}
+          <button className="btn btn-primary" style=${{width:"100%"}} disabled=${salvandoEtapa} onClick=${salvarEtapa}>${salvandoEtapa?"Salvando…":"Salvar pista"}</button>
         </div>`:null}
       </div>`:null}
     </div>`;
