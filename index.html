@@ -1961,6 +1961,7 @@ function CacaTesouro(props){
   const [etapaFotoOrig,setEtapaFotoOrig]=useState(null);
   const [salvandoEtapa,setSalvandoEtapa]=useState(false);
 
+  const [painelGrupoAberto,setPainelGrupoAberto]=useState(null);
   const [codigoDigitado,setCodigoDigitado]=useState("");
   const [validando,setValidando]=useState(false);
   const [erroCodigo,setErroCodigo]=useState("");
@@ -2258,16 +2259,29 @@ function CacaTesouro(props){
       <div className="eyebrow">Painel ao vivo</div>
       <div className="h1" style=${{marginBottom:14}}>📊 ${cacaAtual.titulo}</div>
       <div style=${{display:"flex",flexDirection:"column",gap:10}}>
-        ${ranking.map(function(g,idx){ var total=etapas.filter(function(e){return e.grupo_id===g.id;}).length; var feito=Math.min(g.etapa_atual-1,total); var pct=total?Math.round((feito/total)*100):0;
-          return html`<div key=${g.id} className="card" style=${{padding:"13px 15px"}}>
+        ${ranking.map(function(g,idx){ var etapasG=etapas.filter(function(e){return e.grupo_id===g.id;}).sort(function(a,b){return a.ordem-b.ordem;}); var total=etapasG.length; var feito=Math.min(g.etapa_atual-1,total); var pct=total?Math.round((feito/total)*100):0; var aberto=painelGrupoAberto===g.id;
+          return html`<div key=${g.id} className="card" style=${{padding:"13px 15px",cursor:"pointer"}} onClick=${function(){setPainelGrupoAberto(aberto?null:g.id);}}>
           <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style=${{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
               <div style=${{width:14,height:14,borderRadius:99,background:g.cor,flex:"none"}}></div>
               <div style=${{fontWeight:800,fontSize:15}}>${g.concluido_em?"🏆 ":idx===0&&feito>0?"👑 ":""}${g.nome}</div>
             </div>
-            <div className="note" style=${{fontSize:12}}>${g.concluido_em?fmtHora(g.concluido_em):feito+"/"+total+" pistas"}</div>
+            <div style=${{display:"flex",alignItems:"center",gap:8}}>
+              <div className="note" style=${{fontSize:12}}>${g.concluido_em?fmtHora(g.concluido_em):feito+"/"+total+" pistas"}</div>
+              <span style=${{fontSize:12,opacity:.6}}>${aberto?"▲":"▼"}</span>
+            </div>
           </div>
           <div style=${{height:7,background:"#F0EBE3",borderRadius:99,marginTop:9,overflow:"hidden"}}><div style=${{height:"100%",width:pct+"%",background:g.cor,borderRadius:99}}></div></div>
+          ${aberto?html`<div style=${{marginTop:12,display:"flex",flexDirection:"column",gap:8}} onClick=${function(e){e.stopPropagation();}}>
+            ${etapasG.length===0?html`<div className="note" style=${{fontSize:12.5}}>Nenhuma pista cadastrada para este grupo.</div>`:etapasG.map(function(e){ var status=e.ordem<g.etapa_atual?"✅":e.ordem===g.etapa_atual?"👉":"🔒";
+              return html`<div key=${e.id} style=${{background:"#F6F1E9",borderRadius:10,padding:"9px 11px"}}>
+                <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                  <div style=${{fontWeight:700,fontSize:13}}>${status} Pista ${e.ordem}</div>
+                  <div style=${{fontWeight:800,fontSize:13,letterSpacing:.5}}>${e.codigo}</div>
+                </div>
+                <div className="note" style=${{fontSize:12,marginTop:3}}>${e.dica}</div>
+              </div>`; })}
+          </div>`:null}
         </div>`; })}
       </div>
     </div>`;
