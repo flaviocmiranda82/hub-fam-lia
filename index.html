@@ -1625,12 +1625,14 @@ create table if not exists public.ct_grupos (
   nome text not null,
   cor text not null,
   membros text[] not null default '{}',
+  logins text[] not null default '{}',
   etapa_atual int not null default 1,
   concluido_em timestamptz
 );
 alter table public.ct_grupos enable row level security;
 create policy "ct grupos todos" on public.ct_grupos
   for all to authenticated using (true) with check (true);
+alter table public.ct_grupos add column if not exists logins text[] not null default '{}';
 
 create table if not exists public.ct_etapas (
   id uuid primary key default gen_random_uuid(),
@@ -1946,8 +1948,14 @@ function CacaTesouro(props){
   const [novoGrupoNome,setNovoGrupoNome]=useState("");
   const [novoGrupoCor,setNovoGrupoCor]=useState(CORES_CT[0]);
   const [novoGrupoMembros,setNovoGrupoMembros]=useState("");
+  const [novoGrupoLogins,setNovoGrupoLogins]=useState([]);
+  const [membrosApp,setMembrosApp]=useState([]);
 
   const [etapaGrupoSel,setEtapaGrupoSel]=useState(null);
+  const [editandoMembrosId,setEditandoMembrosId]=useState(null);
+  const [editandoMembrosValor,setEditandoMembrosValor]=useState("");
+  const [editandoLoginsValor,setEditandoLoginsValor]=useState([]);
+  const [salvandoMembros,setSalvandoMembros]=useState(false);
   const [etapaDica,setEtapaDica]=useState("");
   const [etapaCodigo,setEtapaCodigo]=useState("");
   const [etapaFotoOrig,setEtapaFotoOrig]=useState(null);
@@ -1963,7 +1971,7 @@ function CacaTesouro(props){
     if(r.error){ setCarregando(false); if((r.error.message||"").indexOf("cacas_tesouro")>=0||r.error.code==="42P01"){setSemTabela(true);} else {toast(r.error.message);} return; }
     setCacas(r.data||[]); setSemTabela(false); setCarregando(false);
   };
-  useEffect(function(){ carregarCacas(); },[]);
+  useEffect(function(){ carregarCacas(); sb.from("membros").select("nome,papel").then(function(r){setMembrosApp(r.data||[]);}); },[]);
 
   const carregarDetalhe=async function(caca){
     var rg=await sb.from("ct_grupos").select("*").eq("caca_id",caca.id).order("criado_em",{ascending:true});
@@ -1971,7 +1979,7 @@ function CacaTesouro(props){
     var re=await sb.from("ct_etapas").select("*").eq("caca_id",caca.id).order("ordem",{ascending:true});
     if(re.error){toast(re.error.message);return;}
     setGrupos(rg.data||[]); setEtapas(re.data||[]);
-    var meu=(rg.data||[]).find(function(g){ return (g.membros||[]).some(function(m){ return (m||"").trim().toLowerCase()===nomeAtual.toLowerCase(); }); });
+    var meu=(rg.data||[]).find(function(g){ return (g.logins||[]).some(function(m){ return (m||"").trim().toLowerCase()===nomeAtual.toLowerCase(); }); });
     setMeuGrupoId(meu?meu.id:null);
   };
 
@@ -2005,11 +2013,32 @@ function CacaTesouro(props){
   async function adicionarGrupo(){
     if(!novoGrupoNome.trim()){toast("Dê um nome ao grupo (ex: Larissa, Dupla Azul).");return;}
     var membrosArr=novoGrupoMembros.split(",").map(function(s){return s.trim();}).filter(Boolean);
-    var r=await sb.from("ct_grupos").insert({caca_id:cacaAtual.id,nome:novoGrupoNome.trim(),cor:novoGrupoCor,membros:membrosArr,etapa_atual:1}).select().single();
+    var r=await sb.from("ct_grupos").insert({caca_id:cacaAtual.id,nome:novoGrupoNome.trim(),cor:novoGrupoCor,membros:membrosArr,logins:novoGrupoLogins,etapa_atual:1}).select().single();
     if(r.error){toast(r.error.message);return;}
-    setNovoGrupoNome(""); setNovoGrupoMembros(""); setNovoGrupoCor(CORES_CT[grupos.length%CORES_CT.length]);
+    setNovoGrupoNome(""); setNovoGrupoMembros(""); setNovoGrupoLogins([]); setNovoGrupoCor(CORES_CT[grupos.length%CORES_CT.length]);
     carregarDetalhe(cacaAtual);
     toast("Grupo "+r.data.nome+" criado");
+  }
+  function toggleNovoGrupoLogin(nome){
+    setNovoGrupoLogins(function(arr){ return arr.indexOf(nome)>=0?arr.filter(function(n){return n!==nome;}):arr.concat([nome]); });
+  }
+  function toggleEditandoLogin(nome){
+    setEditandoLoginsValor(function(arr){ return arr.indexOf(nome)>=0?arr.filter(function(n){return n!==nome;}):arr.concat([nome]); });
+  }
+  function abrirEditarMembros(g){
+    setEditandoMembrosId(g.id);
+    setEditandoMembrosValor((g.membros||[]).join(", "));
+    setEditandoLoginsValor((g.logins||[]).slice());
+  }
+  async function salvarMembros(id){
+    var arr=editandoMembrosValor.split(",").map(function(s){return s.trim();}).filter(Boolean);
+    setSalvandoMembros(true);
+    var r=await sb.from("ct_grupos").update({membros:arr,logins:editandoLoginsValor}).eq("id",id).select().single();
+    setSalvandoMembros(false);
+    if(r.error){toast(r.error.message);return;}
+    setGrupos(function(gs){return gs.map(function(g){return g.id===id?r.data:g;});});
+    setEditandoMembrosId(null);
+    toast("Integrantes atualizados ✓");
   }
   async function apagarGrupo(id){
     if(!window.confirm("Apagar este grupo e todas as pistas dele?"))return;
@@ -2146,20 +2175,40 @@ function CacaTesouro(props){
 
       <div className="eyebrow" style=${{marginBottom:8}}>Grupos (${grupos.length})</div>
       <div style=${{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
-        ${grupos.map(function(g){ var qtd=etapas.filter(function(e){return e.grupo_id===g.id;}).length; return html`<div key=${g.id} className="card" style=${{padding:"11px 13px",display:"flex",alignItems:"center",gap:10}}>
-          <div style=${{width:16,height:16,borderRadius:99,background:g.cor,flex:"none"}}></div>
-          <div style=${{flex:1,minWidth:0}}>
-            <div style=${{fontWeight:700,fontSize:14.5}}>${g.nome}</div>
-            <div className="note" style=${{fontSize:11.5}}>${(g.membros||[]).join(", ")||"sem integrantes definidos"} · ${qtd} pista(s)</div>
+        ${grupos.map(function(g){ var qtd=etapas.filter(function(e){return e.grupo_id===g.id;}).length; return html`<div key=${g.id} className="card" style=${{padding:"11px 13px"}}>
+          <div style=${{display:"flex",alignItems:"center",gap:10}}>
+            <div style=${{width:16,height:16,borderRadius:99,background:g.cor,flex:"none"}}></div>
+            <div style=${{flex:1,minWidth:0}}>
+              <div style=${{fontWeight:700,fontSize:14.5}}>${g.nome}</div>
+              ${editandoMembrosId===g.id?null:html`<div className="note" style=${{fontSize:11.5}}>${(g.membros||[]).join(", ")||"sem integrantes definidos"} · ${qtd} pista(s)</div>`}
+              ${editandoMembrosId===g.id?null:html`<div className="note" style=${{fontSize:11.5}}>🔑 destrava com login: ${(g.logins||[]).join(", ")||"nenhum login vinculado"}</div>`}
+            </div>
+            <button onClick=${function(){editandoMembrosId===g.id?setEditandoMembrosId(null):abrirEditarMembros(g);}} style=${{border:"none",background:"none",color:"#6B5B73",fontSize:15,cursor:"pointer",flex:"none"}}>✏️</button>
+            ${podeEditar?html`<button onClick=${function(){apagarGrupo(g.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer",flex:"none"}}>🗑</button>`:null}
           </div>
-          ${podeEditar?html`<button onClick=${function(){apagarGrupo(g.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer",flex:"none"}}>🗑</button>`:null}
+          ${editandoMembrosId===g.id?html`<div style=${{marginTop:8}}>
+            <div style=${{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+              <input className="input" style=${{flex:1,fontSize:13}} placeholder="Integrantes, separados por vírgula (podem ser pessoas sem login)" value=${editandoMembrosValor} onChange=${function(e){setEditandoMembrosValor(e.target.value);}}/>
+              <button className="btn btn-primary" style=${{flex:"none",padding:"9px 14px"}} disabled=${salvandoMembros} onClick=${function(){salvarMembros(g.id);}}>${salvandoMembros?"…":"Salvar"}</button>
+            </div>
+            <div className="label" style=${{marginBottom:6}}>Quem destrava este grupo (login no Hub)</div>
+            <div style=${{display:"flex",gap:6,flexWrap:"wrap"}}>
+              ${membrosApp.map(function(m){var sel=editandoLoginsValor.indexOf(m.nome)>=0; return html`<button key=${m.nome} onClick=${function(){toggleEditandoLogin(m.nome);}} style=${{padding:"6px 11px",borderRadius:999,border:sel?"2px solid #2A2233":"1px solid #ECE3D8",background:sel?"#2A2233":"#fff",color:sel?"#fff":"#2A2233",fontWeight:600,fontSize:12.5,cursor:"pointer"}}>${m.nome}</button>`;})}
+              ${membrosApp.length===0?html`<span className="note" style=${{fontSize:11.5}}>Nenhum membro cadastrado no Hub ainda.</span>`:null}
+            </div>
+          </div>`:null}
         </div>`; })}
       </div>
 
       ${podeEditar?html`<div className="card" style=${{padding:14,marginBottom:20}}>
         <div style=${{fontWeight:700,marginBottom:8}}>+ Novo grupo</div>
         <input className="input" style=${{marginBottom:8}} placeholder="Nome do grupo (ex: Larissa, Dupla Verde)" value=${novoGrupoNome} onChange=${function(e){setNovoGrupoNome(e.target.value);}}/>
-        <input className="input" style=${{marginBottom:8}} placeholder="Integrantes, separados por vírgula" value=${novoGrupoMembros} onChange=${function(e){setNovoGrupoMembros(e.target.value);}}/>
+        <input className="input" style=${{marginBottom:8}} placeholder="Integrantes, separados por vírgula (podem ser pessoas sem login)" value=${novoGrupoMembros} onChange=${function(e){setNovoGrupoMembros(e.target.value);}}/>
+        <span className="label">Quem destrava este grupo (login no Hub)</span>
+        <div style=${{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10,marginTop:6}}>
+          ${membrosApp.map(function(m){var sel=novoGrupoLogins.indexOf(m.nome)>=0; return html`<button key=${m.nome} onClick=${function(){toggleNovoGrupoLogin(m.nome);}} style=${{padding:"6px 11px",borderRadius:999,border:sel?"2px solid #2A2233":"1px solid #ECE3D8",background:sel?"#2A2233":"#fff",color:sel?"#fff":"#2A2233",fontWeight:600,fontSize:12.5,cursor:"pointer"}}>${m.nome}</button>`;})}
+          ${membrosApp.length===0?html`<span className="note" style=${{fontSize:11.5}}>Nenhum membro cadastrado no Hub ainda.</span>`:null}
+        </div>
         <span className="label">Cor do grupo</span>
         <div style=${{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
           ${CORES_CT.map(function(c){return html`<button key=${c} onClick=${function(){setNovoGrupoCor(c);}} style=${{width:30,height:30,borderRadius:99,background:c,border:novoGrupoCor===c?"3px solid #2A2233":"3px solid transparent",cursor:"pointer"}}></button>`;})}
