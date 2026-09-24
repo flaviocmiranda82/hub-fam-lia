@@ -2188,7 +2188,7 @@ function CacaTesouro(props){
           <div style=${{fontWeight:700,marginBottom:8}}>+ Pista ${etapasDoGrupoSel.length+1} para ${(grupos.find(function(g){return g.id===etapaGrupoSel;})||{}).nome}</div>
           <textarea className="input" style=${{marginBottom:8,minHeight:70}} placeholder="Dica que vai aparecer com a foto" value=${etapaDica} onChange=${function(e){setEtapaDica(e.target.value);}}></textarea>
           <input className="input" style=${{marginBottom:10,textTransform:"uppercase"}} placeholder="Código do papel escondido neste local" value=${etapaCodigo} onChange=${function(e){setEtapaCodigo(e.target.value);}}/>
-          <input id="ctFotoEtapa" type="file" accept="image/*" capture="environment" style=${{display:"none"}} onChange=${escolherFotoEtapa}/>
+          <input id="ctFotoEtapa" type="file" accept="image/*" style=${{display:"none"}} onChange=${escolherFotoEtapa}/>
           <button className="btn btn-ghost" style=${{width:"100%",marginBottom:10}} onClick=${function(){document.getElementById("ctFotoEtapa").click();}}>📷 ${etapaFotoOrig?"Trocar foto do local":"Tirar foto do local"}</button>
           ${etapaFotoOrig?html`<img src=${"data:"+etapaFotoOrig.mediaType+";base64,"+etapaFotoOrig.base64} style=${{width:"100%",borderRadius:12,marginBottom:10}}/>`:null}
           <button className="btn btn-primary" style=${{width:"100%"}} disabled=${salvandoEtapa} onClick=${salvarEtapa}>${salvandoEtapa?"Salvando…":"Salvar pista"}</button>
