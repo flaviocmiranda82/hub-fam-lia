@@ -2038,7 +2038,11 @@ function CacaTesouro(props){
       setEtapaFotoOrig(img); setEtapaFotoAnime(null);
       setGerandoAnime(true);
       var r=await sb.functions.invoke("ct-gerar-anime",{body:{imagem:img.base64,mediaType:img.mediaType}});
-      if(r.error)throw r.error;
+      if(r.error){
+        var msgReal=r.error.message;
+        try{ if(r.error.context&&typeof r.error.context.json==="function"){ var corpo=await r.error.context.json(); if(corpo&&corpo.error)msgReal=corpo.error; } }catch(_e){}
+        throw new Error(msgReal);
+      }
       var d=r.data||{};
       if(d.error)throw new Error(d.error);
       if(!d.imagem)throw new Error("resposta sem imagem");
