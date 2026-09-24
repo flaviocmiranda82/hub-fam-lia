@@ -1608,6 +1608,71 @@ alter table public.buraco_partidas enable row level security;
 create policy "buraco todos" on public.buraco_partidas
   for all to authenticated using (true) with check (true);`;
 
+const SQL_CT=`create table if not exists public.cacas_tesouro (
+  id uuid primary key default gen_random_uuid(),
+  criado_em timestamptz not null default now(),
+  titulo text not null,
+  status text not null default 'rascunho'
+);
+alter table public.cacas_tesouro enable row level security;
+create policy "ct cacas todos" on public.cacas_tesouro
+  for all to authenticated using (true) with check (true);
+
+create table if not exists public.ct_grupos (
+  id uuid primary key default gen_random_uuid(),
+  criado_em timestamptz not null default now(),
+  caca_id uuid not null references public.cacas_tesouro(id) on delete cascade,
+  nome text not null,
+  cor text not null,
+  membros text[] not null default '{}',
+  etapa_atual int not null default 1,
+  concluido_em timestamptz
+);
+alter table public.ct_grupos enable row level security;
+create policy "ct grupos todos" on public.ct_grupos
+  for all to authenticated using (true) with check (true);
+
+create table if not exists public.ct_etapas (
+  id uuid primary key default gen_random_uuid(),
+  caca_id uuid not null references public.cacas_tesouro(id) on delete cascade,
+  grupo_id uuid not null references public.ct_grupos(id) on delete cascade,
+  ordem int not null,
+  dica text not null,
+  codigo text not null,
+  foto_original_url text,
+  foto_anime_url text,
+  unique(grupo_id, ordem)
+);
+alter table public.ct_etapas enable row level security;
+create policy "ct etapas todos" on public.ct_etapas
+  for all to authenticated using (true) with check (true);
+
+create table if not exists public.ct_tentativas (
+  id uuid primary key default gen_random_uuid(),
+  criado_em timestamptz not null default now(),
+  caca_id uuid not null references public.cacas_tesouro(id) on delete cascade,
+  grupo_id uuid not null references public.ct_grupos(id) on delete cascade,
+  codigo_tentado text not null,
+  sucesso boolean not null
+);
+alter table public.ct_tentativas enable row level security;
+create policy "ct tentativas todos" on public.ct_tentativas
+  for all to authenticated using (true) with check (true);
+
+insert into storage.buckets (id, name, public)
+values ('ct-fotos','ct-fotos', true)
+on conflict (id) do nothing;
+
+create policy "ct fotos leitura publica" on storage.objects
+  for select using (bucket_id = 'ct-fotos');
+create policy "ct fotos upload autenticado" on storage.objects
+  for insert to authenticated with check (bucket_id = 'ct-fotos');
+create policy "ct fotos update autenticado" on storage.objects
+  for update to authenticated using (bucket_id = 'ct-fotos');
+create policy "ct fotos delete autenticado" on storage.objects
+  for delete to authenticated using (bucket_id = 'ct-fotos');`;
+
+
 function Buraco(props){
   const toast=props.toast||function(){};
   const ehPai=(props.papel==="pai"||props.papel==="mae");
@@ -1852,7 +1917,429 @@ function Buraco(props){
   </div>`;
 }
 
+
+/* ============================================================
+   CAÇA AO TESOURO · fotos viram anime, papéis liberam a próxima
+   ============================================================ */
+const CORES_CT=["#6E5A8E","#EC6A4C","#2E8B83","#C64B33","#3E7C59","#B84A8F","#D9A441","#4A6FA5"];
+
+function fmtHora(iso){ if(!iso)return""; try{return new Date(iso).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});}catch(e){return"";} }
+
+function b64ToBlobCT(b64,mime){ var bin=atob(b64); var len=bin.length; var arr=new Uint8Array(len); for(var i=0;i<len;i++){arr[i]=bin.charCodeAt(i);} return new Blob([arr],{type:mime||"image/jpeg"}); }
+
+function CacaTesouro(props){
+  const toast=props.toast||function(){};
+  const ehPai=(props.papel==="pai"||props.papel==="mae");
+  const nomeAtual=(props.nome||"").trim();
+
+  const [vista,setVista]=useState("lista");        // lista | nova | editar | jogar | painel
+  const [cacas,setCacas]=useState([]);
+  const [carregando,setCarregando]=useState(true);
+  const [semTabela,setSemTabela]=useState(false);
+  const [cacaAtual,setCacaAtual]=useState(null);
+  const [grupos,setGrupos]=useState([]);
+  const [etapas,setEtapas]=useState([]);
+  const [meuGrupoId,setMeuGrupoId]=useState(null);
+
+  const [titNovaCaca,setTitNovaCaca]=useState("");
+
+  const [novoGrupoNome,setNovoGrupoNome]=useState("");
+  const [novoGrupoCor,setNovoGrupoCor]=useState(CORES_CT[0]);
+  const [novoGrupoMembros,setNovoGrupoMembros]=useState("");
+
+  const [etapaGrupoSel,setEtapaGrupoSel]=useState(null);
+  const [etapaDica,setEtapaDica]=useState("");
+  const [etapaCodigo,setEtapaCodigo]=useState("");
+  const [etapaFotoOrig,setEtapaFotoOrig]=useState(null);
+  const [etapaFotoAnime,setEtapaFotoAnime]=useState(null);
+  const [gerandoAnime,setGerandoAnime]=useState(false);
+  const [salvandoEtapa,setSalvandoEtapa]=useState(false);
+
+  const [codigoDigitado,setCodigoDigitado]=useState("");
+  const [validando,setValidando]=useState(false);
+  const [erroCodigo,setErroCodigo]=useState("");
+
+  const carregarCacas=async function(){
+    setCarregando(true);
+    var r=await sb.from("cacas_tesouro").select("*").order("criado_em",{ascending:false});
+    if(r.error){ setCarregando(false); if((r.error.message||"").indexOf("cacas_tesouro")>=0||r.error.code==="42P01"){setSemTabela(true);} else {toast(r.error.message);} return; }
+    setCacas(r.data||[]); setSemTabela(false); setCarregando(false);
+  };
+  useEffect(function(){ carregarCacas(); },[]);
+
+  const carregarDetalhe=async function(caca){
+    var rg=await sb.from("ct_grupos").select("*").eq("caca_id",caca.id).order("criado_em",{ascending:true});
+    if(rg.error){toast(rg.error.message);return;}
+    var re=await sb.from("ct_etapas").select("*").eq("caca_id",caca.id).order("ordem",{ascending:true});
+    if(re.error){toast(re.error.message);return;}
+    setGrupos(rg.data||[]); setEtapas(re.data||[]);
+    var meu=(rg.data||[]).find(function(g){ return (g.membros||[]).some(function(m){ return (m||"").trim().toLowerCase()===nomeAtual.toLowerCase(); }); });
+    setMeuGrupoId(meu?meu.id:null);
+  };
+
+  function voltarLista(){ setVista("lista"); setCacaAtual(null); carregarCacas(); }
+  function abrirEditar(c){ setCacaAtual(c); setEtapaGrupoSel(null); carregarDetalhe(c); setVista("editar"); }
+  function abrirJogar(c){ setCacaAtual(c); setCodigoDigitado(""); setErroCodigo(""); carregarDetalhe(c); setVista("jogar"); }
+  function abrirPainel(c){ setCacaAtual(c); carregarDetalhe(c); setVista("painel"); }
+
+  async function criarCaca(){
+    if(!titNovaCaca.trim()){toast("Dê um nome para a caça ao tesouro.");return;}
+    var r=await sb.from("cacas_tesouro").insert({titulo:titNovaCaca.trim(),status:"rascunho"}).select().single();
+    if(r.error){toast(r.error.message);return;}
+    setTitNovaCaca("");
+    abrirEditar(r.data);
+    toast("Caça criada — agora monte os grupos e as pistas 🗺️");
+  }
+
+  async function mudarStatus(novo){
+    if(!cacaAtual)return;
+    if(novo==="ativa"){
+      var semEtapa=grupos.find(function(g){ return etapas.filter(function(e){return e.grupo_id===g.id;}).length===0; });
+      if(grupos.length<2){toast("Cadastre pelo menos 2 grupos antes de ativar.");return;}
+      if(semEtapa){toast("O grupo "+semEtapa.nome+" ainda não tem nenhuma pista.");return;}
+    }
+    var r=await sb.from("cacas_tesouro").update({status:novo}).eq("id",cacaAtual.id).select().single();
+    if(r.error){toast(r.error.message);return;}
+    setCacaAtual(r.data);
+    toast(novo==="ativa"?"Caça ativada — bora esconder os papéis! 🏁":novo==="encerrada"?"Caça encerrada":"Caça reaberta para edição");
+  }
+
+  async function adicionarGrupo(){
+    if(!novoGrupoNome.trim()){toast("Dê um nome ao grupo (ex: Larissa, Dupla Azul).");return;}
+    var membrosArr=novoGrupoMembros.split(",").map(function(s){return s.trim();}).filter(Boolean);
+    var r=await sb.from("ct_grupos").insert({caca_id:cacaAtual.id,nome:novoGrupoNome.trim(),cor:novoGrupoCor,membros:membrosArr,etapa_atual:1}).select().single();
+    if(r.error){toast(r.error.message);return;}
+    setNovoGrupoNome(""); setNovoGrupoMembros(""); setNovoGrupoCor(CORES_CT[grupos.length%CORES_CT.length]);
+    carregarDetalhe(cacaAtual);
+    toast("Grupo "+r.data.nome+" criado");
+  }
+  async function apagarGrupo(id){
+    if(!window.confirm("Apagar este grupo e todas as pistas dele?"))return;
+    var r=await sb.from("ct_grupos").delete().eq("id",id);
+    if(r.error){toast(r.error.message);return;}
+    if(etapaGrupoSel===id)setEtapaGrupoSel(null);
+    carregarDetalhe(cacaAtual);
+  }
+
+  async function prepImgCT(file){
+    const bmp=await createImageBitmap(file);
+    const max=1800; let w=bmp.width,h=bmp.height;
+    if(Math.max(w,h)>max){ const r=max/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    c.getContext("2d").drawImage(bmp,0,0,w,h);
+    const url=c.toDataURL("image/jpeg",0.88);
+    return {base64:url.split(",")[1], mediaType:"image/jpeg"};
+  }
+
+  async function escolherFotoEtapa(e){
+    var file=e.target.files&&e.target.files[0]; if(!file)return;
+    try{
+      var img=await prepImgCT(file);
+      setEtapaFotoOrig(img); setEtapaFotoAnime(null);
+      setGerandoAnime(true);
+      var r=await sb.functions.invoke("ct-gerar-anime",{body:{imagem:img.base64,mediaType:img.mediaType}});
+      if(r.error)throw r.error;
+      var d=r.data||{};
+      if(d.error)throw new Error(d.error);
+      if(!d.imagem)throw new Error("resposta sem imagem");
+      setEtapaFotoAnime({base64:d.imagem,mediaType:d.mediaType||"image/jpeg"});
+    }catch(err){
+      var em=String((err&&err.message)||err||"");
+      if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ct-gerar-anime não foi encontrada no Supabase. Faça o deploy dela.");}
+      else{toast("Não consegui transformar em anime ("+em.slice(0,80)+"). Vou salvar com a foto original.");}
+    }finally{ setGerandoAnime(false); e.target.value=""; }
+  }
+
+  async function salvarEtapa(){
+    if(!etapaGrupoSel){toast("Escolha o grupo desta pista.");return;}
+    if(!etapaDica.trim()){toast("Escreva a dica.");return;}
+    if(!etapaCodigo.trim()){toast("Defina o código do papel.");return;}
+    if(!etapaFotoOrig){toast("Tire a foto do local.");return;}
+    setSalvandoEtapa(true);
+    try{
+      var proximaOrdem=1+etapas.filter(function(e){return e.grupo_id===etapaGrupoSel;}).length;
+      var caminho=cacaAtual.id+"/"+etapaGrupoSel+"/"+proximaOrdem;
+      var origBlob=b64ToBlobCT(etapaFotoOrig.base64,etapaFotoOrig.mediaType);
+      var upO=await sb.storage.from("ct-fotos").upload(caminho+"-original.jpg",origBlob,{contentType:etapaFotoOrig.mediaType,upsert:true});
+      if(upO.error)throw upO.error;
+      var urlO=sb.storage.from("ct-fotos").getPublicUrl(caminho+"-original.jpg").data.publicUrl;
+      var urlA=urlO;
+      if(etapaFotoAnime){
+        var animeBlob=b64ToBlobCT(etapaFotoAnime.base64,etapaFotoAnime.mediaType);
+        var upA=await sb.storage.from("ct-fotos").upload(caminho+"-anime.jpg",animeBlob,{contentType:etapaFotoAnime.mediaType,upsert:true});
+        if(upA.error)throw upA.error;
+        urlA=sb.storage.from("ct-fotos").getPublicUrl(caminho+"-anime.jpg").data.publicUrl;
+      }
+      var r=await sb.from("ct_etapas").insert({caca_id:cacaAtual.id,grupo_id:etapaGrupoSel,ordem:proximaOrdem,dica:etapaDica.trim(),codigo:etapaCodigo.trim().toUpperCase(),foto_original_url:urlO,foto_anime_url:urlA});
+      if(r.error)throw r.error;
+      setEtapaDica(""); setEtapaCodigo(""); setEtapaFotoOrig(null); setEtapaFotoAnime(null);
+      carregarDetalhe(cacaAtual);
+      toast("Pista "+proximaOrdem+" salva 🧩");
+    }catch(err){ toast("Erro ao salvar: "+String((err&&err.message)||err).slice(0,120)); }
+    finally{ setSalvandoEtapa(false); }
+  }
+  async function apagarEtapa(id){
+    if(!window.confirm("Apagar esta pista?"))return;
+    var r=await sb.from("ct_etapas").delete().eq("id",id);
+    if(r.error){toast(r.error.message);return;}
+    carregarDetalhe(cacaAtual);
+  }
+
+  async function tentarCodigo(){
+    if(!meuGrupoId){toast("Você não está em nenhum grupo desta caça.");return;}
+    var grupo=grupos.find(function(g){return g.id===meuGrupoId;});
+    if(!grupo)return;
+    var digitado=codigoDigitado.trim().toUpperCase();
+    if(!digitado)return;
+    var minhasEtapas=etapas.filter(function(e){return e.grupo_id===meuGrupoId;}).sort(function(a,b){return a.ordem-b.ordem;});
+    var etapaAlvo=minhasEtapas.find(function(e){return e.ordem===grupo.etapa_atual;});
+    setValidando(true); setErroCodigo("");
+    var sucesso=!!(etapaAlvo && etapaAlvo.codigo===digitado);
+    await sb.from("ct_tentativas").insert({caca_id:cacaAtual.id,grupo_id:meuGrupoId,codigo_tentado:digitado,sucesso:sucesso});
+    if(sucesso){
+      var proxOrdem=grupo.etapa_atual+1;
+      var concluiu=proxOrdem>minhasEtapas.length;
+      var patch={etapa_atual:proxOrdem};
+      if(concluiu)patch.concluido_em=new Date().toISOString();
+      var r=await sb.from("ct_grupos").update(patch).eq("id",meuGrupoId).select().single();
+      if(!r.error){ setGrupos(function(gs){return gs.map(function(g){return g.id===meuGrupoId?r.data:g;});}); }
+      setCodigoDigitado("");
+      toast(concluiu?"🏆 Tesouro encontrado!":"Pista liberada! 🔓");
+    } else {
+      setErroCodigo("Código incorreto — confira o papel e tente de novo.");
+    }
+    setValidando(false);
+  }
+
+  useEffect(function(){
+    if(vista!=="painel"||!cacaAtual)return;
+    var ch=sb.channel("ct-painel-"+cacaAtual.id)
+      .on("postgres_changes",{event:"*",schema:"public",table:"ct_grupos",filter:"caca_id=eq."+cacaAtual.id},function(){carregarDetalhe(cacaAtual);})
+      .on("postgres_changes",{event:"*",schema:"public",table:"ct_tentativas",filter:"caca_id=eq."+cacaAtual.id},function(){carregarDetalhe(cacaAtual);})
+      .subscribe();
+    return function(){ sb.removeChannel(ch); };
+  },[vista, cacaAtual&&cacaAtual.id]);
+
+  // =========================================================
+  const voltar=html`<button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:12}} onClick=${voltarLista}>← Caça ao Tesouro</button>`;
+
+  if(carregando) return html`<div className="wrap"><div className="note">Carregando…</div></div>`;
+
+  if(semTabela) return html`<div className="wrap">
+    <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:14}} onClick=${props.onSair}>← Jogos</button>
+    <div className="eyebrow">Caça ao Tesouro</div>
+    <div className="h1" style=${{marginBottom:6}}>🗺️ Falta criar as tabelas</div>
+    <div className="card" style=${{padding:16}}>
+      <div className="note" style=${{marginBottom:10}}>Rode este SQL no painel do Supabase (uma vez só) para ativar o jogo:</div>
+      <pre style=${{whiteSpace:"pre-wrap",fontSize:11.5,fontFamily:"monospace",background:"#F6F1E9",padding:12,borderRadius:10,overflow:"auto"}}>${SQL_CT}</pre>
+      <button className="btn btn-primary" style=${{marginTop:12}} onClick=${carregarCacas}>Já rodei — recarregar</button>
+    </div>
+  </div>`;
+
+  // ---------- NOVA CAÇA ----------
+  if(vista==="nova") return html`<div className="wrap">
+    ${voltar}
+    <div className="eyebrow">Nova caça</div>
+    <div className="h1" style=${{marginBottom:14}}>🗺️ Dar nome à caça</div>
+    <div className="card" style=${{padding:14}}>
+      <span className="label">Nome da caça (ex: Aniversário da Lari, Páscoa 2027)</span>
+      <input className="input" value=${titNovaCaca} onChange=${function(e){setTitNovaCaca(e.target.value);}}/>
+    </div>
+    <button className="btn btn-primary" style=${{marginTop:14}} onClick=${criarCaca}>Criar e montar as pistas</button>
+  </div>`;
+
+  // ---------- EDITAR (ADMIN) ----------
+  if(vista==="editar" && cacaAtual){
+    var podeEditar=cacaAtual.status==="rascunho";
+    var etapasDoGrupoSel=etapaGrupoSel?etapas.filter(function(e){return e.grupo_id===etapaGrupoSel;}).sort(function(a,b){return a.ordem-b.ordem;}):[];
+    return html`<div className="wrap">
+      ${voltar}
+      <div className="eyebrow">${cacaAtual.status==="rascunho"?"Em montagem":cacaAtual.status==="ativa"?"Ativa":"Encerrada"}</div>
+      <div className="h1" style=${{marginBottom:10}}>🗺️ ${cacaAtual.titulo}</div>
+
+      <div style=${{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
+        ${cacaAtual.status==="rascunho"?html`<button className="btn btn-primary" style=${{flex:"none"}} onClick=${function(){mudarStatus("ativa");}}>Ativar caça 🏁</button>`:null}
+        ${cacaAtual.status==="ativa"?html`<button className="btn btn-ghost" onClick=${function(){mudarStatus("encerrada");}}>Encerrar</button><button className="btn btn-ghost" onClick=${function(){abrirPainel(cacaAtual);}}>📊 Painel ao vivo</button>`:null}
+        ${cacaAtual.status==="encerrada"?html`<button className="btn btn-ghost" onClick=${function(){mudarStatus("rascunho");}}>Reabrir para editar</button>`:null}
+      </div>
+
+      <div className="eyebrow" style=${{marginBottom:8}}>Grupos (${grupos.length})</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+        ${grupos.map(function(g){ var qtd=etapas.filter(function(e){return e.grupo_id===g.id;}).length; return html`<div key=${g.id} className="card" style=${{padding:"11px 13px",display:"flex",alignItems:"center",gap:10}}>
+          <div style=${{width:16,height:16,borderRadius:99,background:g.cor,flex:"none"}}></div>
+          <div style=${{flex:1,minWidth:0}}>
+            <div style=${{fontWeight:700,fontSize:14.5}}>${g.nome}</div>
+            <div className="note" style=${{fontSize:11.5}}>${(g.membros||[]).join(", ")||"sem integrantes definidos"} · ${qtd} pista(s)</div>
+          </div>
+          ${podeEditar?html`<button onClick=${function(){apagarGrupo(g.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer",flex:"none"}}>🗑</button>`:null}
+        </div>`; })}
+      </div>
+
+      ${podeEditar?html`<div className="card" style=${{padding:14,marginBottom:20}}>
+        <div style=${{fontWeight:700,marginBottom:8}}>+ Novo grupo</div>
+        <input className="input" style=${{marginBottom:8}} placeholder="Nome do grupo (ex: Larissa, Dupla Verde)" value=${novoGrupoNome} onChange=${function(e){setNovoGrupoNome(e.target.value);}}/>
+        <input className="input" style=${{marginBottom:8}} placeholder="Integrantes, separados por vírgula" value=${novoGrupoMembros} onChange=${function(e){setNovoGrupoMembros(e.target.value);}}/>
+        <span className="label">Cor do grupo</span>
+        <div style=${{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+          ${CORES_CT.map(function(c){return html`<button key=${c} onClick=${function(){setNovoGrupoCor(c);}} style=${{width:30,height:30,borderRadius:99,background:c,border:novoGrupoCor===c?"3px solid #2A2233":"3px solid transparent",cursor:"pointer"}}></button>`;})}
+        </div>
+        <button className="btn btn-primary" onClick=${adicionarGrupo}>Adicionar grupo</button>
+      </div>`:null}
+
+      <div className="eyebrow" style=${{marginBottom:8}}>Pistas</div>
+      ${grupos.length===0?html`<div className="note" style=${{marginBottom:14}}>Cadastre os grupos acima antes de montar as pistas.</div>`:html`<div style=${{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+        ${grupos.map(function(g){return html`<button key=${g.id} onClick=${function(){setEtapaGrupoSel(g.id);}} style=${{padding:"7px 13px",borderRadius:999,border:etapaGrupoSel===g.id?"2px solid #2A2233":"1px solid #ECE3D8",background:g.cor,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>${g.nome}</button>`;})}
+      </div>`}
+
+      ${etapaGrupoSel?html`<div style=${{marginBottom:14}}>
+        ${etapasDoGrupoSel.length?html`<div style=${{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+          ${etapasDoGrupoSel.map(function(e){return html`<div key=${e.id} className="card" style=${{padding:"10px 12px",display:"flex",gap:10,alignItems:"center"}}>
+            ${e.foto_anime_url?html`<img src=${e.foto_anime_url} style=${{width:46,height:46,objectFit:"cover",borderRadius:9,flex:"none"}}/>`:null}
+            <div style=${{flex:1,minWidth:0}}>
+              <div style=${{fontWeight:700,fontSize:13.5}}>Pista ${e.ordem} · código ${e.codigo}</div>
+              <div className="note" style=${{fontSize:11.5}}>${e.dica}</div>
+            </div>
+            ${podeEditar?html`<button onClick=${function(){apagarEtapa(e.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:15,cursor:"pointer",flex:"none"}}>🗑</button>`:null}
+          </div>`;})}
+        </div>`:null}
+
+        ${podeEditar?html`<div className="card" style=${{padding:14}}>
+          <div style=${{fontWeight:700,marginBottom:8}}>+ Pista ${etapasDoGrupoSel.length+1} para ${(grupos.find(function(g){return g.id===etapaGrupoSel;})||{}).nome}</div>
+          <textarea className="input" style=${{marginBottom:8,minHeight:70}} placeholder="Dica que vai aparecer com a foto" value=${etapaDica} onChange=${function(e){setEtapaDica(e.target.value);}}></textarea>
+          <input className="input" style=${{marginBottom:10,textTransform:"uppercase"}} placeholder="Código do papel escondido neste local" value=${etapaCodigo} onChange=${function(e){setEtapaCodigo(e.target.value);}}/>
+          <input id="ctFotoEtapa" type="file" accept="image/*" capture="environment" style=${{display:"none"}} onChange=${escolherFotoEtapa}/>
+          <button className="btn btn-ghost" style=${{width:"100%",marginBottom:10}} onClick=${function(){document.getElementById("ctFotoEtapa").click();}}>📷 ${etapaFotoOrig?"Trocar foto do local":"Tirar foto do local"}</button>
+          ${gerandoAnime?html`<div className="note" style=${{marginBottom:10}}>Transformando em anime… ⏳</div>`:null}
+          ${etapaFotoAnime?html`<img src=${"data:"+etapaFotoAnime.mediaType+";base64,"+etapaFotoAnime.base64} style=${{width:"100%",borderRadius:12,marginBottom:10}}/>`:etapaFotoOrig&&!gerandoAnime?html`<img src=${"data:"+etapaFotoOrig.mediaType+";base64,"+etapaFotoOrig.base64} style=${{width:"100%",borderRadius:12,marginBottom:10}}/>`:null}
+          <button className="btn btn-primary" style=${{width:"100%"}} disabled=${salvandoEtapa||gerandoAnime} onClick=${salvarEtapa}>${salvandoEtapa?"Salvando…":"Salvar pista"}</button>
+        </div>`:null}
+      </div>`:null}
+    </div>`;
+  }
+
+  // ---------- PAINEL AO VIVO (ADMIN) ----------
+  if(vista==="painel" && cacaAtual){
+    var ranking=grupos.slice().sort(function(a,b){
+      if(a.concluido_em&&b.concluido_em)return new Date(a.concluido_em)-new Date(b.concluido_em);
+      if(a.concluido_em)return -1; if(b.concluido_em)return 1;
+      return (b.etapa_atual-a.etapa_atual);
+    });
+    return html`<div className="wrap">
+      ${voltar}
+      <div className="eyebrow">Painel ao vivo</div>
+      <div className="h1" style=${{marginBottom:14}}>📊 ${cacaAtual.titulo}</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:10}}>
+        ${ranking.map(function(g,idx){ var total=etapas.filter(function(e){return e.grupo_id===g.id;}).length; var feito=Math.min(g.etapa_atual-1,total); var pct=total?Math.round((feito/total)*100):0;
+          return html`<div key=${g.id} className="card" style=${{padding:"13px 15px"}}>
+          <div style=${{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style=${{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+              <div style=${{width:14,height:14,borderRadius:99,background:g.cor,flex:"none"}}></div>
+              <div style=${{fontWeight:800,fontSize:15}}>${g.concluido_em?"🏆 ":idx===0&&feito>0?"👑 ":""}${g.nome}</div>
+            </div>
+            <div className="note" style=${{fontSize:12}}>${g.concluido_em?fmtHora(g.concluido_em):feito+"/"+total+" pistas"}</div>
+          </div>
+          <div style=${{height:7,background:"#F0EBE3",borderRadius:99,marginTop:9,overflow:"hidden"}}><div style=${{height:"100%",width:pct+"%",background:g.cor,borderRadius:99}}></div></div>
+        </div>`; })}
+      </div>
+    </div>`;
+  }
+
+  // ---------- JOGAR ----------
+  if(vista==="jogar" && cacaAtual){
+    var meuGrupo=grupos.find(function(g){return g.id===meuGrupoId;});
+    if(!meuGrupo) return html`<div className="wrap">
+      ${voltar}
+      <div className="card" style=${{padding:"26px 18px",textAlign:"center"}}>
+        <div style=${{fontSize:32}}>🗺️</div>
+        <div style=${{fontWeight:700,marginTop:8}}>Você não está em nenhum grupo desta caça</div>
+        <div className="note" style=${{marginTop:6}}>Peça pro responsável te colocar em um grupo.</div>
+      </div>
+    </div>`;
+    var minhasEtapas=etapas.filter(function(e){return e.grupo_id===meuGrupoId;}).sort(function(a,b){return a.ordem-b.ordem;});
+    var concluiu=meuGrupo.etapa_atual>minhasEtapas.length;
+    if(concluiu) return html`<div className="wrap">
+      ${voltar}
+      <div className="card" style=${{padding:"32px 18px",textAlign:"center",background:"linear-gradient(135deg,#FDEEE9,#E7F2F0)"}}>
+        <div style=${{fontSize:44}}>🏆</div>
+        <div style=${{fontWeight:800,fontSize:19,marginTop:8}}>Tesouro encontrado!</div>
+        <div className="note" style=${{marginTop:6}}>Parabéns, ${meuGrupo.nome}! ${meuGrupo.concluido_em?"Concluído às "+fmtHora(meuGrupo.concluido_em)+".":""}</div>
+      </div>
+    </div>`;
+    var etapaAtualObj=minhasEtapas.find(function(e){return e.ordem===meuGrupo.etapa_atual;});
+    return html`<div className="wrap">
+      ${voltar}
+      <div style=${{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+        <div style=${{width:14,height:14,borderRadius:99,background:meuGrupo.cor,flex:"none"}}></div>
+        <div className="eyebrow">${meuGrupo.nome} · pista ${meuGrupo.etapa_atual} de ${minhasEtapas.length}</div>
+      </div>
+      <div className="h1" style=${{marginBottom:14}}>🗺️ ${cacaAtual.titulo}</div>
+      ${etapaAtualObj?html`<div className="card" style=${{padding:14,marginBottom:14}}>
+        ${etapaAtualObj.foto_anime_url?html`<img src=${etapaAtualObj.foto_anime_url} style=${{width:"100%",borderRadius:12,marginBottom:12}}/>`:null}
+        <div style=${{fontWeight:700,fontSize:16}}>${etapaAtualObj.dica}</div>
+      </div>`:html`<div className="note" style=${{marginBottom:14}}>Aguardando a próxima pista…</div>`}
+      <div className="card" style=${{padding:14}}>
+        <span className="label">Código do papel</span>
+        <input className="input" style=${{textTransform:"uppercase",marginBottom:8}} value=${codigoDigitado} onChange=${function(e){setCodigoDigitado(e.target.value);setErroCodigo("");}} onKeyDown=${function(e){if(e.key==="Enter")tentarCodigo();}}/>
+        ${erroCodigo?html`<div className="note" style=${{color:"#C64B33",marginBottom:8}}>${erroCodigo}</div>`:null}
+        <button className="btn btn-primary" style=${{width:"100%"}} disabled=${validando} onClick=${tentarCodigo}>${validando?"Verificando…":"Destravar próxima pista"}</button>
+      </div>
+    </div>`;
+  }
+
+  // ---------- LISTA ----------
+  var ativas=cacas.filter(function(c){return c.status==="ativa";});
+  var rascunhos=cacas.filter(function(c){return c.status==="rascunho";});
+  var encerradas=cacas.filter(function(c){return c.status==="encerrada";});
+  return html`<div className="wrap">
+    <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:12}} onClick=${props.onSair}>← Jogos</button>
+    <div className="eyebrow">Caça ao Tesouro</div>
+    <div className="h1" style=${{marginBottom:4}}>🗺️ Siga as pistas</div>
+    <div className="note" style=${{marginBottom:16}}>Fotos viram anime, papéis escondidos liberam o próximo passo.</div>
+
+    ${ehPai?html`<button className="capa-portal anim" style=${{background:"linear-gradient(150deg,#D9A441,#B8842B)",marginBottom:18}} onClick=${function(){setTitNovaCaca("");setVista("nova");}}>
+      <div className="pt-bolha"></div><div className="pt-seta">→</div>
+      <div style=${{position:"relative",zIndex:1}}><div className="pt-emoji">🗺️</div><div className="pt-tit">Nova caça</div><div className="pt-desc">Montar grupos e esconder as pistas</div></div>
+    </button>`:null}
+
+    ${ativas.length?html`<div style=${{marginBottom:16}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Em andamento</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8}}>
+        ${ativas.map(function(c){return html`<div key=${c.id} className="card" style=${{padding:"13px 15px"}}>
+          <div style=${{fontWeight:700,fontSize:15,marginBottom:8}}>${c.titulo}</div>
+          <div style=${{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button className="btn btn-primary" style=${{flex:"none",padding:"8px 14px"}} onClick=${function(){abrirJogar(c);}}>Jogar</button>
+            ${ehPai?html`<button className="btn btn-ghost" style=${{flex:"none",padding:"8px 14px"}} onClick=${function(){abrirPainel(c);}}>📊 Painel</button><button className="btn btn-ghost" style=${{flex:"none",padding:"8px 14px"}} onClick=${function(){abrirEditar(c);}}>✏️ Editar</button>`:null}
+          </div>
+        </div>`;})}
+      </div>
+    </div>`:null}
+
+    ${ehPai&&rascunhos.length?html`<div style=${{marginBottom:16}}>
+      <div className="eyebrow" style=${{marginBottom:8}}>Em montagem</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8}}>
+        ${rascunhos.map(function(c){return html`<button key=${c.id} className="card" onClick=${function(){abrirEditar(c);}} style=${{border:"none",cursor:"pointer",textAlign:"left",padding:"13px 15px"}}>
+          <div style=${{fontWeight:700,fontSize:15}}>${c.titulo}</div>
+          <div className="note" style=${{marginTop:3}}>continuar montando →</div>
+        </button>`;})}
+      </div>
+    </div>`:null}
+
+    ${encerradas.length?html`<div>
+      <div className="eyebrow" style=${{marginBottom:8}}>Histórico</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8}}>
+        ${encerradas.map(function(c){return html`<button key=${c.id} className="card" onClick=${function(){abrirPainel(c);}} style=${{border:"none",cursor:"pointer",textAlign:"left",padding:"13px 15px",opacity:.9}}>
+          <div style=${{fontWeight:700,fontSize:15}}>${c.titulo}</div>
+          <div className="note" style=${{marginTop:3}}>${new Date(c.criado_em).toLocaleDateString("pt-BR")} · encerrada</div>
+        </button>`;})}
+      </div>
+    </div>`:null}
+
+    ${!ativas.length&&!rascunhos.length&&!encerradas.length?html`<div className="card" style=${{padding:"26px 18px",textAlign:"center"}}><div style=${{fontSize:32}}>🗺️</div><div style=${{fontWeight:700,marginTop:8}}>Nenhuma caça ainda</div><div className="note" style=${{marginTop:6}}>${ehPai?"Toque em \"Nova caça\" para montar a primeira.":"Peça pro responsável montar a primeira caça."}</div></div>`:null}
+  </div>`;
+}
+
 function Jogos(props){
+
   const [tela,setTela]=useState("casa");   // "casa" | id da criança
   const [jogoId,setJogoId]=useState(null);
   const toast=props.toast||function(){};
@@ -1868,6 +2355,7 @@ function Jogos(props){
   async function apagarProva(id){ if(!window.confirm("Apagar esta prova importada?"))return; var r=await sb.from("jogo_provas").delete().eq("id",id); if(r.error){toast(r.error.message);return;} carregarProvas(); }
 
   if(tela==="buraco") return html`<${Buraco} papel=${props.papel} nome=${props.nome} toast=${toast} onSair=${function(){setTela("casa");}}/>`;
+  if(tela==="tesouro") return html`<${CacaTesouro} papel=${props.papel} nome=${props.nome} toast=${toast} onSair=${function(){setTela("casa");}}/>`;
 
   if(tela!=="casa" && jogoId){
     const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
@@ -1932,6 +2420,10 @@ function Jogos(props){
     <button className="capa-portal anim" style=${{background:"linear-gradient(150deg,#3E7C59,#2C5C42)",marginBottom:20}} onClick=${function(){setTela("buraco");}}>
       <div className="pt-bolha"></div><div className="pt-seta">→</div>
       <div style=${{position:"relative",zIndex:1}}><div className="pt-emoji">🃏</div><div className="pt-tit">Placar de Buraco</div><div className="pt-desc">Contar pontos por dupla e por mão</div></div>
+    </button>
+    <button className="capa-portal anim" style=${{background:"linear-gradient(150deg,#D9A441,#B8842B)",marginBottom:20}} onClick=${function(){setTela("tesouro");}}>
+      <div className="pt-bolha"></div><div className="pt-seta">→</div>
+      <div style=${{position:"relative",zIndex:1}}><div className="pt-emoji">🗺️</div><div className="pt-tit">Caça ao Tesouro</div><div className="pt-desc">Siga as pistas e ache o tesouro</div></div>
     </button>
     <div className="eyebrow" style=${{marginBottom:10}}>Jogos das crianças</div>
     <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
