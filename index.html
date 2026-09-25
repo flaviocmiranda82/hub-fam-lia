@@ -2011,6 +2011,20 @@ function CacaTesouro(props){
     toast(novo==="ativa"?"Caça ativada — bora esconder os papéis! 🏁":novo==="encerrada"?"Caça encerrada":"Caça reaberta para edição");
   }
 
+  async function reiniciarCaca(){
+    if(!cacaAtual)return;
+    if(!window.confirm("Isso zera o progresso de todos os grupos (volta pra pista 1) e reativa a caça, mantendo os mesmos grupos e pistas. Confirma?"))return;
+    var rt=await sb.from("ct_tentativas").delete().eq("caca_id",cacaAtual.id);
+    if(rt.error){toast(rt.error.message);return;}
+    var rg=await sb.from("ct_grupos").update({etapa_atual:1,concluido_em:null}).eq("caca_id",cacaAtual.id);
+    if(rg.error){toast(rg.error.message);return;}
+    var rc=await sb.from("cacas_tesouro").update({status:"ativa"}).eq("id",cacaAtual.id).select().single();
+    if(rc.error){toast(rc.error.message);return;}
+    setCacaAtual(rc.data);
+    carregarDetalhe(rc.data);
+    toast("Caça reiniciada — mesmos grupos e pistas, progresso zerado 🔁");
+  }
+
   async function adicionarGrupo(){
     if(!novoGrupoNome.trim()){toast("Dê um nome ao grupo (ex: Larissa, Dupla Azul).");return;}
     var membrosArr=novoGrupoMembros.split(",").map(function(s){return s.trim();}).filter(Boolean);
@@ -2171,7 +2185,7 @@ function CacaTesouro(props){
       <div style=${{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
         ${cacaAtual.status==="rascunho"?html`<button className="btn btn-primary" style=${{flex:"none"}} onClick=${function(){mudarStatus("ativa");}}>Ativar caça 🏁</button>`:null}
         ${cacaAtual.status==="ativa"?html`<button className="btn btn-ghost" onClick=${function(){mudarStatus("encerrada");}}>Encerrar</button><button className="btn btn-ghost" onClick=${function(){abrirPainel(cacaAtual);}}>📊 Painel ao vivo</button>`:null}
-        ${cacaAtual.status==="encerrada"?html`<button className="btn btn-ghost" onClick=${function(){mudarStatus("rascunho");}}>Reabrir para editar</button>`:null}
+        ${cacaAtual.status==="encerrada"?html`<button className="btn btn-primary" style=${{flex:"none"}} onClick=${reiniciarCaca}>🔁 Jogar novamente</button><button className="btn btn-ghost" onClick=${function(){mudarStatus("rascunho");}}>Reabrir para editar</button>`:null}
       </div>
 
       <div className="eyebrow" style=${{marginBottom:8}}>Grupos (${grupos.length})</div>
@@ -2257,7 +2271,8 @@ function CacaTesouro(props){
     return html`<div className="wrap">
       ${voltar}
       <div className="eyebrow">Painel ao vivo</div>
-      <div className="h1" style=${{marginBottom:14}}>📊 ${cacaAtual.titulo}</div>
+      <div className="h1" style=${{marginBottom:cacaAtual.status==="encerrada"&&ehPai?10:14}}>📊 ${cacaAtual.titulo}</div>
+      ${cacaAtual.status==="encerrada"&&ehPai?html`<button className="btn btn-primary" style=${{marginBottom:14}} onClick=${reiniciarCaca}>🔁 Jogar novamente</button>`:null}
       <div style=${{display:"flex",flexDirection:"column",gap:10}}>
         ${ranking.map(function(g,idx){ var etapasG=etapas.filter(function(e){return e.grupo_id===g.id;}).sort(function(a,b){return a.ordem-b.ordem;}); var total=etapasG.length; var feito=Math.min(g.etapa_atual-1,total); var pct=total?Math.round((feito/total)*100):0; var aberto=painelGrupoAberto===g.id;
           return html`<div key=${g.id} className="card" style=${{padding:"13px 15px",cursor:"pointer"}} onClick=${function(){setPainelGrupoAberto(aberto?null:g.id);}}>
