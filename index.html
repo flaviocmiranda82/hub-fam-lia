@@ -756,10 +756,12 @@ function Mercado(props){
   const [novaAberto,setNovaAberto]=useState(false),[nova,setNova]=useState({nome:"",mercado:"",orcamento:"",data:hojeLocal()});
   const [addAberto,setAddAberto]=useState(false),[busca,setBusca]=useState(""),[catAberta,setCatAberta]=useState("");
   const [ordem,setOrdem]=useState("categoria"),[lendo,setLendo]=useState(false),[resumo,setResumo]=useState(null);
+  const [catalogo,setCatalogo]=useState({}),[conciliar,setConciliar]=useState(null);
 
   const carregar=async function(){
     const a=await sb.from("mercado_listas").select("*").order("criado_em",{ascending:false}); setListas(a.data||[]);
     const b=await sb.from("mercado_itens").select("*").order("criado_em"); setItens(b.data||[]);
+    const c=await sb.from("mercado_catalogo").select("nome_app,ultimo_preco,ultimo_mercado"); var cm={}; (c.data||[]).forEach(function(r){cm[(r.nome_app||"").toLowerCase()]=r;}); setCatalogo(cm);
   };
   useEffect(function(){carregar();const ch=sb.channel("merc").on("postgres_changes",{event:"*",schema:"public",table:"mercado_listas"},carregar).on("postgres_changes",{event:"*",schema:"public",table:"mercado_itens"},carregar).subscribe();return function(){sb.removeChannel(ch);};},[]);
 
@@ -798,6 +800,10 @@ function Mercado(props){
   const totalG=totalComprado(itensL);
   const orc=lista?Number(lista.orcamento||0):0;
   const compradosN=itensL.filter(function(i){return i.comprado;}).length;
+  const precoAnterior=function(nome){var r=catalogo[(nome||"").toLowerCase()];return (r&&r.ultimo_preco!=null)?Number(r.ultimo_preco):null;};
+  const itensPendentes=itensL.filter(function(i){return !i.comprado;});
+  const nComHistorico=itensPendentes.filter(function(i){return precoAnterior(i.nome)!=null;}).length;
+  const estimativa=itensPendentes.reduce(function(t,i){var p=precoAnterior(i.nome);return p!=null?t+p*Number(i.qtd||1):t;},0);
 
   async function finalizar(){ if(!lista)return; await sb.from("mercado_listas").update({status:"concluida",total:totalG,data:hojeLocal()}).eq("id",lista.id); setResumo({nome:lista.nome,mercado:lista.mercado,orc:orc,gasto:totalG,itens:compradosN,tot:itensL.length}); carregar(); }
 
@@ -807,18 +813,89 @@ function Mercado(props){
       const itensParaCasar=itensL.map(function(i){return {id:i.id,nome:i.nome,categoria:i.categoria};});
       const r=await sb.functions.invoke("ler-cupom",{body:{imagem:img.base64,mediaType:img.mediaType,listaId:lista.id,itens:itensParaCasar}});
       if(r.error)throw r.error; const d=r.data||{}; if(d.error)throw new Error(d.error);
-      var upd={}; if(d.total)upd.total=Number(d.total); if(d.mercado&&!lista.mercado)upd.mercado=d.mercado; upd.status="concluida"; upd.data=hojeLocal();
-      await sb.from("mercado_listas").update(upd).eq("id",lista.id);
-      var msgItens=(d.itens_conciliados||0)+" da lista"+(d.itens_novos?" + "+d.itens_novos+" fora da lista":"");
-      setResumo({nome:lista.nome,mercado:d.mercado||lista.mercado,orc:orc,gasto:d.total?Number(d.total):totalG,itens:compradosN,tot:itensL.length,nf:true,nfDetalhe:msgItens}); carregar();
+      var linhas=(d.itens||[]).map(function(it,idx){
+        var sugestaoValida=it.sugestao_id&&itensL.some(function(x){return x.id===it.sugestao_id;});
+        return {key:"l"+idx,codigo:it.codigo||null,descricao:it.descricao,qtd:Number(it.qtd)||1,valorUnit:Number(it.valor_unitario)||0,itemId:sugestaoValida?it.sugestao_id:"__novo",nomeNovo:it.descricao,categoria:it.categoria_sugerida||"🛒 Mercearia"};
+      });
+      if(!linhas.length){toast("Não encontrei itens legíveis neste cupom.");return;}
+      setConciliar({mercado:d.mercado||null,total:d.total||null,data:d.data||null,linhas:linhas});
     }catch(err){ var em=String((err&&err.message)||err||""); if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ler-cupom não foi encontrada no Supabase. Faça o deploy dela.");}else{toast("Não consegui ler o cupom: "+em.slice(0,90));} }
     finally{setLendo(false);e.target.value="";}
+  }
+
+  function updLinha(key,patch){ setConciliar(function(c){ if(!c)return c; return Object.assign({},c,{linhas:c.linhas.map(function(l){return l.key===key?Object.assign({},l,patch):l;})}); }); }
+
+  async function confirmarConciliacao(){ if(!conciliar||!lista)return; setLendo(true);
+    try{
+      var dataCompra=(conciliar.data&&/^\d{4}-\d{2}-\d{2}$/.test(conciliar.data))?conciliar.data:hojeLocal();
+      var historico=[]; var catUp=new Map();
+      for(var i=0;i<conciliar.linhas.length;i++){ var l=conciliar.linhas[i]; if(l.itemId==="__ignorar")continue;
+        var nomeApp, categoriaFinal=l.categoria||"🛒 Mercearia";
+        if(l.itemId==="__novo"){
+          var nomeFinal=(l.nomeNovo||l.descricao||"Item do cupom").trim();
+          var ins=await sb.from("mercado_itens").insert({lista_id:lista.id,nome:nomeFinal,categoria:categoriaFinal,qtd:l.qtd||1,unidade:"un",preco:l.valorUnit,comprado:true});
+          if(ins.error){toast(ins.error.message);continue;} nomeApp=nomeFinal;
+        } else {
+          var alvo=itensL.find(function(x){return x.id===l.itemId;});
+          nomeApp=alvo?alvo.nome:l.descricao; categoriaFinal=alvo?(alvo.categoria||categoriaFinal):categoriaFinal;
+          var upd=await sb.from("mercado_itens").update({preco:l.valorUnit,comprado:true}).eq("id",l.itemId);
+          if(upd.error){toast(upd.error.message);continue;}
+        }
+        historico.push({codigo_barras:l.codigo||null,nome_cupom:l.descricao,nome_app:nomeApp,preco:l.valorUnit,qtd:l.qtd||1,mercado:conciliar.mercado||null,data:dataCompra,lista_id:lista.id});
+        if(l.codigo)catUp.set(l.codigo,{codigo_barras:l.codigo,nome_app:nomeApp,categoria:categoriaFinal,ultimo_preco:l.valorUnit,ultimo_mercado:conciliar.mercado||null,atualizado_em:new Date().toISOString()});
+      }
+      if(historico.length){var rh=await sb.from("mercado_historico_precos").insert(historico); if(rh.error)toast(rh.error.message);}
+      if(catUp.size){var rc=await sb.from("mercado_catalogo").upsert(Array.from(catUp.values()),{onConflict:"codigo_barras"}); if(rc.error)toast(rc.error.message);}
+      var updLista={status:"concluida",data:hojeLocal()}; if(conciliar.total)updLista.total=Number(conciliar.total); if(conciliar.mercado&&!lista.mercado)updLista.mercado=conciliar.mercado;
+      await sb.from("mercado_listas").update(updLista).eq("id",lista.id);
+      var fresh=(await sb.from("mercado_itens").select("*").eq("lista_id",lista.id)).data||itensL;
+      var compFresh=fresh.filter(function(i){return i.comprado;}).length;
+      var gastoFresh=totalComprado(fresh);
+      var nConc=conciliar.linhas.filter(function(l){return l.itemId!=="__novo"&&l.itemId!=="__ignorar";}).length;
+      var nNovo=conciliar.linhas.filter(function(l){return l.itemId==="__novo";}).length;
+      setResumo({nome:lista.nome,mercado:conciliar.mercado||lista.mercado,orc:orc,gasto:conciliar.total?Number(conciliar.total):gastoFresh,itens:compFresh,tot:fresh.length,nf:true,nfDetalhe:nConc+" da lista"+(nNovo?(" + "+nNovo+" fora da lista"):"")});
+      setConciliar(null); carregar();
+    } finally { setLendo(false); }
   }
 
   function ordenar(its){ var a=its.slice();
     if(ordem==="categoria")a.sort(function(x,y){return (x.categoria||"").localeCompare(y.categoria||"")||(x.nome||"").localeCompare(y.nome||"");});
     else if(ordem==="pendentes")a.sort(function(x,y){return (x.comprado?1:0)-(y.comprado?1:0);});
     return a;
+  }
+
+  // ---------- CONCILIAÇÃO DO CUPOM ----------
+  if(conciliar){
+    var totalRevisado=conciliar.linhas.reduce(function(t,l){return l.itemId==="__ignorar"?t:t+(Number(l.valorUnit)||0)*(Number(l.qtd)||1);},0);
+    var nConcT=conciliar.linhas.filter(function(l){return l.itemId!=="__novo"&&l.itemId!=="__ignorar";}).length;
+    var nNovoT=conciliar.linhas.filter(function(l){return l.itemId==="__novo";}).length;
+    var nIgnT=conciliar.linhas.filter(function(l){return l.itemId==="__ignorar";}).length;
+    return html`<div className="wrap">
+      <div className="eyebrow">🧾 Conciliar cupom</div>
+      <div className="h1" style=${{fontSize:24}}>${conciliar.mercado||"Cupom lido"}</div>
+      <div className="note" style=${{marginTop:4}}>${nConcT} casados com a lista · ${nNovoT} novos · ${nIgnT} ignorados · total revisado ${fmtR(totalRevisado)}</div>
+      <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:14}}>
+        ${conciliar.linhas.map(function(l){return html`<div key=${l.key} className="card" style=${{padding:"11px 13px"}}>
+          <div style=${{display:"flex",justifyContent:"space-between",gap:8}}>
+            <div style=${{minWidth:0}}>
+              <div style=${{fontWeight:700,fontSize:13.5}}>${l.descricao}</div>
+              <div className="note" style=${{fontSize:11}}>${l.codigo?("cód "+l.codigo+" · "):""}${l.qtd}× ${fmtR(l.valorUnit)}</div>
+            </div>
+            <div style=${{fontWeight:700,fontSize:13.5,color:COR.pais,flexShrink:0}}>${fmtR((Number(l.valorUnit)||0)*(Number(l.qtd)||1))}</div>
+          </div>
+          <select value=${l.itemId} onChange=${function(e){updLinha(l.key,{itemId:e.target.value});}} style=${{width:"100%",marginTop:8,padding:"8px 10px",border:"1px solid #E4D9CC",borderRadius:9,fontSize:13,boxSizing:"border-box"}}>
+            <option value="__novo">🆕 Novo item (fora da lista)</option>
+            <option value="__ignorar">🚫 Ignorar esta linha</option>
+            ${itensL.map(function(it){return html`<option key=${it.id} value=${it.id}>${it.nome}</option>`;})}
+          </select>
+          ${l.itemId==="__novo"?html`<input value=${l.nomeNovo} onChange=${function(e){updLinha(l.key,{nomeNovo:e.target.value});}} placeholder="Nome do item" style=${{width:"100%",marginTop:6,padding:"7px 10px",border:"1px solid #E4D9CC",borderRadius:9,fontSize:13,boxSizing:"border-box"}}/>`:null}
+        </div>`;})}
+      </div>
+      <div style=${{display:"flex",gap:8,marginTop:16,marginBottom:10}}>
+        <button className="btn btn-ghost" style=${{flex:1}} disabled=${lendo} onClick=${function(){setConciliar(null);}}>Cancelar</button>
+        <button className="btn btn-primary" style=${{flex:2}} disabled=${lendo} onClick=${confirmarConciliacao}>${lendo?"Salvando…":"✓ Confirmar e salvar"}</button>
+      </div>
+    </div>`;
   }
 
   // ---------- RESUMO PÓS-COMPRA ----------
@@ -872,11 +949,12 @@ function Mercado(props){
             <span className="note" style=${{fontSize:12}}>R$</span>
             <input type="number" step="0.01" inputMode="decimal" placeholder="preço unitário" value=${i.preco==null?"":i.preco} onChange=${function(e){updItem(i.id,{preco:e.target.value===""?null:Number(e.target.value)});}} style=${{flex:1,padding:"8px 10px",border:"1px solid #E4D9CC",borderRadius:9,fontSize:13.5}}/>
             <span style=${{fontWeight:700,fontSize:13,color:COR.pais}}>${i.preco?fmtR(Number(i.preco)*Number(i.qtd||1)):""}</span>
-          </div>`:null}
+          </div>
+          ${(i.preco&&precoAnterior(i.nome)!=null)?(function(){var pa=precoAnterior(i.nome);var dif=Number(i.preco)-pa;var subiu=dif>0.009,desceu=dif<-0.009;return html`<div className="note" style=${{fontSize:11,marginTop:3,color:subiu?"#C64B33":desceu?COR.pais:"#857A8C"}}>${subiu?"▲ +":desceu?"▼ -":"= "}${fmtR(Math.abs(dif))} vs última compra (${fmtR(pa)})</div>`;})():null}`:null}
         </div>`;})}
       </div>
       <div style=${{display:"flex",flexDirection:"column",gap:8,marginTop:16,marginBottom:10}}>
-        <button className="btn btn-ghost" disabled=${lendo} onClick=${function(){document.getElementById("cupomFile").click();}}>${lendo?"Lendo cupom…":"🧾 Ler cupom (foto) e finalizar"}</button>
+        <button className="btn btn-ghost" disabled=${lendo} onClick=${function(){document.getElementById("cupomFile").click();}}>${lendo?"Lendo cupom…":"🧾 Ler cupom (foto) e conciliar"}</button>
         <input id="cupomFile" type="file" accept="image/*" style=${{display:"none"}} onChange=${lerCupom}/>
         <button className="btn btn-primary" onClick=${finalizar}>✓ Finalizar compra · ${fmtR(totalG)}</button>
       </div>
@@ -891,6 +969,10 @@ function Mercado(props){
         <div><div className="h1" style=${{fontSize:26}}>${lista.nome}</div><div className="note">${lista.mercado||"Mercado a definir"}${orc?(" · orçamento "+fmtR(orc)):""}</div></div>
         <button className="btn btn-ghost" style=${{padding:"6px 10px",fontSize:12,flexShrink:0}} onClick=${function(){if(confirm("Apagar a lista "+lista.nome+"?"))delLista(lista.id);}}>🗑</button>
       </div>
+      ${(!orc&&estimativa>0)?html`<div className="note" style=${{marginTop:6,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span>💡 Estimativa pelo histórico: <b>${fmtR(estimativa)}</b> (${nComHistorico}/${itensPendentes.length} itens)</span>
+        <button className="btn btn-ghost" style=${{padding:"4px 9px",fontSize:11.5}} onClick=${function(){sb.from("mercado_listas").update({orcamento:estimativa}).eq("id",lista.id).then(carregar);}}>Usar como orçamento</button>
+      </div>`:null}
 
       ${addAberto?html`<div className="card" style=${{padding:14,marginTop:14}}>
         <div style=${{display:"flex",gap:8,marginBottom:10}}>
@@ -911,7 +993,7 @@ function Mercado(props){
         ${Object.keys(catsPresentes).sort().map(function(cat){return html`<div key=${cat} style=${{marginBottom:12}}>
           <div className="catit"><span>${cat.split(" ")[0]}</span>${cat.split(" ").slice(1).join(" ")}</div>
           <div style=${{display:"flex",flexDirection:"column",gap:6}}>${catsPresentes[cat].map(function(i){return html`<div key=${i.id} className="card" style=${{display:"flex",alignItems:"center",gap:9,padding:"9px 12px"}}>
-            <div style=${{flex:1,minWidth:0}}><span style=${{fontWeight:600,fontSize:14}}>${i.nome}</span></div>
+            <div style=${{flex:1,minWidth:0}}><span style=${{fontWeight:600,fontSize:14}}>${i.nome}</span>${precoAnterior(i.nome)!=null?html`<div className="note" style=${{fontSize:11}}>última: ${fmtR(precoAnterior(i.nome))}</div>`:null}</div>
             <input type="number" inputMode="numeric" value=${i.qtd} onChange=${function(e){updItem(i.id,{qtd:Number(e.target.value)||1});}} style=${{width:40,padding:"6px 3px",textAlign:"center",border:"1px solid #E4D9CC",borderRadius:8,fontSize:13}}/>
             <select value=${i.unidade} onChange=${function(e){updItem(i.id,{unidade:e.target.value});}} style=${{padding:"6px 4px",border:"1px solid #E4D9CC",borderRadius:8,fontSize:12}}>${UNIDS.map(function(u){return html`<option key=${u} value=${u}>${u}</option>`;})}</select>
             <button onClick=${function(){delItem(i.id);}} style=${{border:"none",background:"none",color:"#C64B33",fontSize:16,cursor:"pointer",flexShrink:0}}>×</button>
