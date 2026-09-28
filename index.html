@@ -803,10 +803,14 @@ function Mercado(props){
 
   async function prepImg(file){const bmp=await createImageBitmap(file);const max=2000;let w=bmp.width,h=bmp.height;if(Math.max(w,h)>max){const r=max/Math.max(w,h);w=Math.round(w*r);h=Math.round(h*r);}const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(bmp,0,0,w,h);const url=c.toDataURL("image/jpeg",0.9);return{base64:url.split(",")[1],mediaType:"image/jpeg"};}
   async function lerCupom(e){ const file=e.target.files&&e.target.files[0]; if(!file||!lista)return; setLendo(true);
-    try{ const img=await prepImg(file); const r=await sb.functions.invoke("ler-cupom",{body:{imagem:img.base64,mediaType:img.mediaType}}); if(r.error)throw r.error; const d=r.data||{}; if(d.error)throw new Error(d.error);
+    try{ const img=await prepImg(file);
+      const itensParaCasar=itensL.map(function(i){return {id:i.id,nome:i.nome,categoria:i.categoria};});
+      const r=await sb.functions.invoke("ler-cupom",{body:{imagem:img.base64,mediaType:img.mediaType,listaId:lista.id,itens:itensParaCasar}});
+      if(r.error)throw r.error; const d=r.data||{}; if(d.error)throw new Error(d.error);
       var upd={}; if(d.total)upd.total=Number(d.total); if(d.mercado&&!lista.mercado)upd.mercado=d.mercado; upd.status="concluida"; upd.data=hojeLocal();
       await sb.from("mercado_listas").update(upd).eq("id",lista.id);
-      setResumo({nome:lista.nome,mercado:d.mercado||lista.mercado,orc:orc,gasto:d.total?Number(d.total):totalG,itens:compradosN,tot:itensL.length,nf:true}); carregar();
+      var msgItens=(d.itens_conciliados||0)+" da lista"+(d.itens_novos?" + "+d.itens_novos+" fora da lista":"");
+      setResumo({nome:lista.nome,mercado:d.mercado||lista.mercado,orc:orc,gasto:d.total?Number(d.total):totalG,itens:compradosN,tot:itensL.length,nf:true,nfDetalhe:msgItens}); carregar();
     }catch(err){ var em=String((err&&err.message)||err||""); if(em.indexOf("not found")>=0||em.indexOf("404")>=0||em.indexOf("Failed to send")>=0){toast("A função ler-cupom não foi encontrada no Supabase. Faça o deploy dela.");}else{toast("Não consegui ler o cupom: "+em.slice(0,90));} }
     finally{setLendo(false);e.target.value="";}
   }
@@ -826,6 +830,7 @@ function Mercado(props){
         <div style=${{fontSize:34}}>${estourou?"😬":"🎉"}</div>
         <div style=${{fontFamily:"'Bricolage Grotesque',sans-serif",fontWeight:800,fontSize:30,marginTop:4}}>${fmtR(resumo.gasto)}</div>
         <div className="note">${resumo.mercado||"Compra"} · ${resumo.itens}/${resumo.tot} itens${resumo.nf?" · via cupom 🧾":""}</div>
+        ${resumo.nfDetalhe?html`<div className="note" style=${{marginTop:2}}>Conciliado pelo cupom: ${resumo.nfDetalhe}</div>`:null}
         ${resumo.orc>0?html`<div style=${{marginTop:12,padding:"10px 12px",borderRadius:12,background:estourou?COR.meninasBg:COR.paisBg,color:estourou?COR.meninas:COR.pais,fontWeight:600,fontSize:13.5}}>
           Orçamento ${fmtR(resumo.orc)} · ${estourou?("estourou "+fmtR(dif)):("sobrou "+fmtR(-dif))}
         </div>`:null}
