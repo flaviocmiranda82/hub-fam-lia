@@ -1799,6 +1799,280 @@ function parseProvaTxt(txt){
   if(!temQuestao) erros.push("Não encontrei nenhuma pergunta. Cada pergunta começa com “P:”.");
   return {titulo:titulo, materia:materiaGlobal, perguntas:perguntas, erros:erros};
 }
+/* ============================================================
+   PROVAS ABERTAS · resposta digitada + correção automática
+   O gabarito fica só no Supabase (provas_gabaritos, só pai/mãe).
+   A filha envia pela função enviar_prova, que corrige no banco.
+   ============================================================ */
+const STATUS_PROVA={
+  correta:{t:"Correta",ic:"✅",cor:"#2E8B83",bg:"#E7F2F0"},
+  parcial:{t:"Parcial",ic:"🔶",cor:"#B8842B",bg:"#FBF1DC"},
+  errada:{t:"Errada",ic:"❌",cor:"#C64B33",bg:"#fde7ef"},
+  duvida:{t:"Conferir",ic:"👀",cor:"#6E5A8E",bg:"#EEE9F5"}
+};
+function statusEfetivo(c){ return (c&&c.final)||(c&&c.status)||"duvida"; }
+function notaProva(correcao){
+  var n=(correcao||[]).length; if(!n) return 0; var s=0;
+  correcao.forEach(function(c){ var e=statusEfetivo(c); if(e==="correta") s+=1; else if(e==="parcial") s+=0.5; });
+  return Math.round(s/n*100)/10;
+}
+function temDuvidaPendente(correcao){ return (correcao||[]).some(function(c){ return !c.final && c.status==="duvida"; }); }
+
+function RelogioProva(props){
+  var h=props.h, m=props.m;
+  function pt(ang,len){ var r=(ang-90)*Math.PI/180; return [100+len*Math.cos(r),100+len*Math.sin(r)]; }
+  var ph=pt(((h%12)+m/60)*30,46), pm=pt(m*6,70);
+  var marcas=[], nums=[];
+  for(var t=0;t<60;t++){ var a=pt(t*6,94), b=pt(t*6,t%5===0?85:90); marcas.push(html`<line key=${"t"+t} x1=${a[0]} y1=${a[1]} x2=${b[0]} y2=${b[1]} stroke="#2A2233" strokeWidth=${t%5===0?2.5:1}/>`); }
+  for(var n=1;n<=12;n++){ var p=pt(n*30,74); nums.push(html`<text key=${"n"+n} x=${p[0]} y=${p[1]+5} textAnchor="middle" fontSize="15" fontWeight="700" fill="#2A2233">${n}</text>`); }
+  return html`<svg viewBox="0 0 200 200" style=${{width:190,height:190,display:"block",margin:"8px auto 12px"}}>
+    <circle cx="100" cy="100" r="97" fill="#fff" stroke="#2A2233" strokeWidth="4"/>
+    ${marcas}${nums}
+    <line x1="100" y1="100" x2=${ph[0]} y2=${ph[1]} stroke="#2A2233" strokeWidth="6" strokeLinecap="round"/>
+    <line x1="100" y1="100" x2=${pm[0]} y2=${pm[1]} stroke="#EC6A4C" strokeWidth="3.5" strokeLinecap="round"/>
+    <circle cx="100" cy="100" r="5" fill="#2A2233"/>
+  </svg>`;
+}
+
+function SolidoProva(props){
+  var nome=props.nome, f="#9DD3CD", s="#2E8B83", e="#6AB5AD", sty={width:150,height:130,display:"block",margin:"8px auto 12px"};
+  if(nome==="cubo") return html`<svg viewBox="0 0 160 140" style=${sty}>
+    <polygon points="20,50 100,50 100,130 20,130" fill=${f} stroke=${s} strokeWidth="3"/>
+    <polygon points="20,50 60,15 140,15 100,50" fill=${e} stroke=${s} strokeWidth="3"/>
+    <polygon points="100,50 140,15 140,95 100,130" fill="#7CC2BA" stroke=${s} strokeWidth="3"/></svg>`;
+  if(nome==="piramide") return html`<svg viewBox="0 0 160 140" style=${sty}>
+    <polygon points="80,12 20,110 100,125" fill=${f} stroke=${s} strokeWidth="3"/>
+    <polygon points="80,12 100,125 145,95" fill="#7CC2BA" stroke=${s} strokeWidth="3"/>
+    <polygon points="20,110 100,125 145,95 70,85" fill="none" stroke=${s} strokeWidth="2" strokeDasharray="5 4"/></svg>`;
+  if(nome==="cilindro") return html`<svg viewBox="0 0 160 140" style=${sty}>
+    <path d="M35 35 L35 105 A45 16 0 0 0 125 105 L125 35" fill=${f} stroke=${s} strokeWidth="3"/>
+    <ellipse cx="80" cy="35" rx="45" ry="16" fill=${e} stroke=${s} strokeWidth="3"/></svg>`;
+  if(nome==="esfera") return html`<svg viewBox="0 0 160 140" style=${sty}>
+    <circle cx="80" cy="70" r="56" fill=${f} stroke=${s} strokeWidth="3"/>
+    <ellipse cx="62" cy="48" rx="16" ry="9" fill="#fff" opacity=".55"/></svg>`;
+  if(nome==="cone") return html`<svg viewBox="0 0 160 140" style=${sty}>
+    <path d="M80 10 L30 105 A50 18 0 0 0 130 105 Z" fill=${f} stroke=${s} strokeWidth="3"/></svg>`;
+  return null;
+}
+
+function GraficoProva(props){
+  var v=props.v, max=v.max||50, passo=v.passo||10, H=150, linhas=[];
+  for(var y=0;y<=max;y+=passo) linhas.push(y);
+  var cores=["#EC6A4C","#D9A441","#6E5A8E","#2E8B83"];
+  return html`<div style=${{margin:"6px 0 14px"}}>
+    <div style=${{textAlign:"center",fontWeight:800,fontSize:13,letterSpacing:.5,marginBottom:8}}>${v.titulo||""}</div>
+    <div style=${{display:"flex"}}>
+      <div style=${{position:"relative",width:30,height:H,flex:"none"}}>
+        ${linhas.map(function(y){ return html`<div key=${y} style=${{position:"absolute",right:5,bottom:(y/max*H)-8,fontSize:11,color:"#6b6270"}}>${y}</div>`; })}
+      </div>
+      <div style=${{position:"relative",flex:1,height:H,borderLeft:"2px solid #2A2233",borderBottom:"2px solid #2A2233"}}>
+        ${linhas.map(function(y){ return y===0?null:html`<div key=${"g"+y} style=${{position:"absolute",left:0,right:0,bottom:(y/max*H),height:1,background:"#E4D9CC"}}></div>`; })}
+        <div style=${{position:"absolute",left:0,right:0,top:0,bottom:0,display:"flex",justifyContent:"space-around",alignItems:"flex-end"}}>
+          ${v.barras.map(function(b,i){ return html`<div key=${i} style=${{width:"17%",height:(b.valor/max*H),background:cores[i%cores.length],borderRadius:"5px 5px 0 0",display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:4,fontSize:20}}>${b.emoji||""}</div>`; })}
+        </div>
+      </div>
+    </div>
+    <div style=${{display:"flex",marginLeft:32}}>
+      ${v.barras.map(function(b,i){ return html`<div key=${i} style=${{flex:1,textAlign:"center",fontSize:12.5,fontWeight:700,paddingTop:4}}>${b.rotulo}</div>`; })}
+    </div>
+  </div>`;
+}
+
+function TabelaProva(props){
+  var v=props.v;
+  return html`<table style=${{width:"100%",borderCollapse:"collapse",margin:"4px 0 14px",fontSize:15}}>
+    <thead><tr>${v.cabecalho.map(function(c,i){ return html`<th key=${i} style=${{border:"2px solid #2A2233",background:"#F0EBE3",padding:"7px 8px",textAlign:"left"}}>${c}</th>`; })}</tr></thead>
+    <tbody>${v.linhas.map(function(l,ri){ return html`<tr key=${ri}>${l.map(function(c,ci){ return html`<td key=${ci} style=${{border:"2px solid #2A2233",padding:"7px 8px"}}>${c}</td>`; })}</tr>`; })}</tbody>
+  </table>`;
+}
+
+function VisualProva(props){
+  var v=props.v; if(!v) return null;
+  if(v.tipo==="relogio") return html`<${RelogioProva} h=${v.h} m=${v.m}/>`;
+  if(v.tipo==="solido") return html`<${SolidoProva} nome=${v.nome}/>`;
+  if(v.tipo==="grafico") return html`<${GraficoProva} v=${v}/>`;
+  if(v.tipo==="tabela") return html`<${TabelaProva} v=${v}/>`;
+  return null;
+}
+
+/* ---- A filha faz a prova (só perguntas) e vê o resultado ---- */
+function ProvaAberta(props){
+  const prova=props.prova, crianca=props.crianca, envio=props.envio, onVoltar=props.onVoltar, onEnviado=props.onEnviado;
+  const toast=props.toast||function(){};
+  const perguntas=prova.perguntas||[];
+  const total=perguntas.length;
+  const [fase,setFase]=useState("inicio");
+  const [i,setI]=useState(0);
+  const [resp,setResp]=useState({});
+  const [enviando,setEnviando]=useState(false);
+  const C=temaJogo("padrao");
+  const primeiroNome=String((crianca&&crianca.nome)||"").trim().split(" ")[0];
+  const card={background:C.creme,borderRadius:22,padding:"20px 16px",boxShadow:"0 10px 26px rgba(42,34,51,.12)",border:"3px solid #fff"};
+  const btn={fontFamily:"inherit",fontSize:18,fontWeight:"bold",color:"#fff",background:C.acento,border:"none",borderRadius:16,padding:"13px 22px",cursor:"pointer",boxShadow:"0 5px 0 "+C.sombraBtn};
+  const btnSec={fontFamily:"inherit",fontSize:16,fontWeight:"bold",color:C.escuro,background:"#F0EBE3",border:"none",borderRadius:16,padding:"13px 18px",cursor:"pointer"};
+  const voltar=html`<button onClick=${onVoltar} style=${{background:"none",border:"none",color:C.terra,fontSize:15,cursor:"pointer",marginBottom:10}}>← Voltar</button>`;
+
+  function setCampo(qid,k,val){ setResp(function(r){ var n=Object.assign({},r); var a=(n[qid]||[]).slice(); a[k]=val; n[qid]=a; return n; }); }
+
+  async function enviar(){
+    var faltam=0;
+    perguntas.forEach(function(q){ (q.campos||[]).forEach(function(c,k){ var v=(resp[q.id]||[])[k]; if(!v||!String(v).trim()) faltam++; }); });
+    if(faltam>0 && !window.confirm("Ainda tem "+faltam+" resposta(s) em branco. Enviar mesmo assim?")) return;
+    setEnviando(true);
+    var r=await sb.rpc("enviar_prova",{p_prova:prova.id,p_crianca:crianca.id,p_respostas:resp});
+    setEnviando(false);
+    if(r.error){ toast(r.error.message); return; }
+    toast("Prova enviada! 🎉");
+    if(onEnviado) onEnviado();
+  }
+
+  /* resultado (já enviada) */
+  if(envio){
+    var corr=envio.correcao||[];
+    var fin=envio.status==="revisada"||envio.status==="corrigida";
+    return html`<div style=${{maxWidth:480,margin:"0 auto",padding:16,color:C.escuro}}>
+      ${voltar}
+      <div style=${{...card,textAlign:"center"}}>
+        <div style=${{fontSize:46}}>${fin?"🏁":"📬"}</div>
+        <div style=${{fontSize:22,fontWeight:800,color:C.acento,margin:"6px 0"}}>${prova.titulo}</div>
+        ${fin?html`<div>
+          <div style=${{fontSize:42,fontWeight:800,color:C.acento}}>${String(envio.nota).replace(".",",")}<span style=${{fontSize:18,color:C.terra}}> / 10</span></div>
+          <div style=${{color:C.terra,fontSize:16,margin:"4px 0 14px"}}>${Number(envio.nota)>=9?"Incrível, "+primeiroNome+"! 🌟":Number(envio.nota)>=6?"Muito bem, "+primeiroNome+"! 👏":"Bora revisar juntos, "+primeiroNome+"! 💪"}</div>
+          <div style=${{display:"flex",flexWrap:"wrap",gap:8,justifyContent:"center"}}>
+            ${corr.map(function(c,ix){ var s=STATUS_PROVA[statusEfetivo(c)]||STATUS_PROVA.duvida; return html`<div key=${c.id} style=${{minWidth:62,padding:"8px 6px",borderRadius:12,background:s.bg,fontWeight:700,fontSize:13}}>${ix+1}<br/>${s.ic}</div>`; })}
+          </div>
+          <div className="note" style=${{marginTop:14}}>Qualquer dúvida, converse com o papai ou a mamãe.</div>
+        </div>`:html`<div>
+          <div style=${{color:C.terra,fontSize:16,margin:"6px 8px 4px"}}>Prova enviada! Papai e mamãe vão conferir algumas respostas e depois o resultado aparece aqui. 👀</div>
+        </div>`}
+      </div>
+    </div>`;
+  }
+
+  if(fase==="inicio"){
+    return html`<div style=${{maxWidth:480,margin:"0 auto",padding:16,color:C.escuro}}>
+      ${voltar}
+      <div style=${{...card,textAlign:"center"}}>
+        <div style=${{fontSize:48}}>✏️</div>
+        <div style=${{fontSize:24,fontWeight:800,color:C.acento,margin:"6px 0"}}>${prova.titulo}</div>
+        <div style=${{color:C.terra,fontSize:16,margin:"0 6px 14px",lineHeight:1.4}}>${total} perguntas. Faça as contas no caderno e escreva só a resposta aqui. Pode voltar numa pergunta quando quiser.</div>
+        <button style=${btn} onClick=${function(){setFase("jogo");setI(0);}}>Começar 🚀</button>
+      </div>
+    </div>`;
+  }
+
+  var q=perguntas[i]; var prog=Math.round((i/total)*100); var ultima=(i===total-1);
+  return html`<div style=${{maxWidth:480,margin:"0 auto",padding:16,color:C.escuro}}>
+    <div style=${card}>
+      <div style=${{display:"flex",alignItems:"center",marginBottom:12,fontSize:15,fontWeight:700,color:C.terra}}>
+        <span>${i+1}/${total}</span>
+        <div style=${{flex:1,height:12,background:"#e0e0d5",borderRadius:20,margin:"0 10px",overflow:"hidden"}}><div style=${{height:"100%",width:prog+"%",background:C.acento,borderRadius:20}}></div></div>
+      </div>
+      <div style=${{width:42,height:42,borderRadius:"50%",background:C.destaque,color:"#fff",fontWeight:800,fontSize:19,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}>${i+1}</div>
+      <p style=${{fontSize:18,lineHeight:1.35,margin:"4px 2px 12px"}}>${q.enunciado}</p>
+      <${VisualProva} v=${q.visual}/>
+      ${(q.campos||[]).map(function(c,k){
+        var val=(resp[q.id]||[])[k]||"";
+        return html`<div key=${q.id+"_"+k} style=${{marginBottom:12}}>
+          <div style=${{fontSize:15,fontWeight:700,marginBottom:4}}>${c.rotulo}</div>
+          <div style=${{display:"flex",alignItems:"center",gap:8}}>
+            <input value=${val} inputMode=${c.tipo==="num"?"numeric":"text"} autoComplete="off" onChange=${function(e){setCampo(q.id,k,e.target.value);}} placeholder="Escreva aqui" style=${{flex:1,minWidth:0,fontFamily:"inherit",fontSize:22,padding:"11px 14px",borderRadius:14,border:"3px solid "+C.clara,boxSizing:"border-box"}}/>
+            ${c.unidade?html`<span style=${{fontSize:15,color:C.terra,fontWeight:700}}>${c.unidade}</span>`:null}
+          </div>
+        </div>`;
+      })}
+      ${q.dica?html`<div className="note" style=${{marginBottom:10}}>💡 ${q.dica}</div>`:null}
+      <div style=${{display:"flex",gap:10,justifyContent:"space-between",marginTop:8}}>
+        ${i>0?html`<button style=${btnSec} onClick=${function(){setI(i-1);}}>← Voltar</button>`:html`<span></span>`}
+        ${ultima?html`<button style=${btn} disabled=${enviando} onClick=${enviar}>${enviando?"Enviando…":"Enviar prova 🏁"}</button>`:html`<button style=${btn} onClick=${function(){setI(i+1);}}>Próxima ➜</button>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Pais: gabarito, respostas da filha e correção das dúvidas ---- */
+function RevisaoProva(props){
+  const prova=props.prova, crianca=props.crianca, envio=props.envio, onVoltar=props.onVoltar, onAtualizar=props.onAtualizar;
+  const toast=props.toast||function(){};
+  const perguntas=prova.perguntas||[];
+  const [gab,setGab]=useState(null);
+  const [corr,setCorr]=useState(envio?(envio.correcao||[]):[]);
+  const [salvando,setSalvando]=useState(false);
+  useEffect(function(){ setCorr(envio?(envio.correcao||[]):[]); },[envio&&envio.id,envio&&envio.revisado_em]);
+  useEffect(function(){
+    sb.from("provas_gabaritos").select("gabarito").eq("prova_id",prova.id).maybeSingle().then(function(r){
+      if(r.error){ toast(r.error.message); return; }
+      setGab(r.data?r.data.gabarito:[]);
+    });
+  },[prova.id]);
+
+  function marcar(qid,val){ setCorr(function(cs){ return cs.map(function(c){ return c.id===qid?Object.assign({},c,{final:(c.final===val?null:val)}):c; }); }); }
+  async function salvar(){
+    setSalvando(true);
+    var pend=temDuvidaPendente(corr);
+    var r=await sb.from("provas_respostas").update({correcao:corr,nota:notaProva(corr),status:pend?"aguardando_pais":"revisada",revisado_em:new Date().toISOString()}).eq("id",envio.id);
+    setSalvando(false);
+    if(r.error){ toast(r.error.message); return; }
+    toast(pend?"Salvo. Ainda há itens para conferir.":"Correção salva! A "+crianca.nome+" já vê a nota. ✅");
+    if(onAtualizar) onAtualizar();
+  }
+  async function refazer(){
+    if(!window.confirm("Apagar o envio da "+crianca.nome+" para ela poder refazer a prova?")) return;
+    var r=await sb.from("provas_respostas").delete().eq("id",envio.id);
+    if(r.error){ toast(r.error.message); return; }
+    toast("Envio apagado."); if(onAtualizar) onAtualizar(); onVoltar();
+  }
+
+  const pendentes=corr.filter(function(c){ return !c.final && c.status==="duvida"; }).length;
+  const btnMarca=function(ativo,cor){ return {fontFamily:"inherit",fontSize:13,fontWeight:700,padding:"7px 10px",borderRadius:10,border:"2px solid "+cor,background:ativo?cor:"#fff",color:ativo?"#fff":cor,cursor:"pointer"}; };
+
+  return html`<div className="wrap">
+    <button className="btn btn-ghost" style=${{padding:"7px 12px",fontSize:13,marginBottom:14}} onClick=${onVoltar}>← Provas</button>
+    <div className="eyebrow">${envio?"Correção":"Gabarito"} · ${crianca.nome}</div>
+    <div className="h1" style=${{marginBottom:4}}>${prova.titulo}</div>
+    ${envio?html`<div className="card" style=${{padding:"12px 14px",marginBottom:14,background:pendentes?"#EEE9F5":"#E7F2F0"}}>
+      <div style=${{fontWeight:800,fontSize:20}}>Nota: ${String(notaProva(corr)).replace(".",",")} / 10</div>
+      <div className="note" style=${{marginTop:2}}>${pendentes?("👀 "+pendentes+" resposta(s) para você conferir"):"Todas as questões estão conferidas."}</div>
+    </div>`:html`<div className="note" style=${{marginBottom:14}}>A ${crianca.nome} ainda não fez esta prova. Abaixo, as respostas esperadas (só você vê isto).</div>`}
+
+    ${perguntas.map(function(q,ix){
+      var g=gab?gab.find(function(x){return x.id===q.id;}):null;
+      var c=corr.find(function(x){return x.id===q.id;});
+      var ef=c?statusEfetivo(c):null; var s=ef?STATUS_PROVA[ef]:null;
+      var respQ=envio&&envio.respostas?(envio.respostas[q.id]||[]):[];
+      return html`<div key=${q.id} className="card" style=${{padding:"13px 14px",marginBottom:10,border:c&&!c.final&&c.status==="duvida"?"2px solid #6E5A8E":"none"}}>
+        <div style=${{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+          <div style=${{fontWeight:700,fontSize:14.5,lineHeight:1.35}}>${ix+1}. ${q.enunciado}</div>
+          ${s?html`<span className="chip" style=${{background:s.bg,color:s.cor,flex:"none"}}>${s.ic} ${s.t}</span>`:null}
+        </div>
+        <div className="note" style=${{margin:"2px 0 8px",fontSize:11.5}}>${q.topico||""}</div>
+        <${VisualProva} v=${q.visual}/>
+        ${(q.campos||[]).map(function(cp,k){
+          var esperado=g&&g.campos&&g.campos[k]?g.campos[k].aceitos[0]:"…";
+          var sc=c&&c.campos?c.campos[k]:null;
+          var cor=sc==="ok"?"#2E8B83":sc==="errado"||sc==="vazio"?"#C64B33":sc==="duvida"?"#6E5A8E":"#6b6270";
+          return html`<div key=${k} style=${{display:"flex",justifyContent:"space-between",gap:8,padding:"5px 0",borderTop:"1px dashed #E4D9CC",fontSize:13.5}}>
+            <span style=${{flex:1,minWidth:0}}>${cp.rotulo}</span>
+            ${envio?html`<span style=${{fontWeight:700,color:cor,flex:"none",maxWidth:"34%",wordBreak:"break-word"}}>${respQ[k]?respQ[k]:"(em branco)"}</span>`:null}
+            <span style=${{flex:"none",color:"#2E8B83",fontWeight:700}}>${envio?"✔ ":""}${esperado}</span>
+          </div>`;
+        })}
+        ${g&&g.explicacao?html`<div className="note" style=${{marginTop:6,fontSize:12.5}}>💬 ${g.explicacao}</div>`:null}
+        ${envio&&c?html`<div style=${{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+          <button style=${btnMarca(c.final==="correta","#2E8B83")} onClick=${function(){marcar(q.id,"correta");}}>✅ Correta</button>
+          <button style=${btnMarca(c.final==="parcial","#B8842B")} onClick=${function(){marcar(q.id,"parcial");}}>🔶 Meio certa</button>
+          <button style=${btnMarca(c.final==="errada","#C64B33")} onClick=${function(){marcar(q.id,"errada");}}>❌ Errada</button>
+        </div>`:null}
+      </div>`;
+    })}
+
+    ${envio?html`<div style=${{display:"flex",gap:8,marginTop:6,marginBottom:20}}>
+      <button className="btn btn-primary" style=${{flex:1}} disabled=${salvando} onClick=${salvar}>${salvando?"Salvando…":"Salvar correção"}</button>
+      <button className="btn btn-ghost" onClick=${refazer}>Refazer</button>
+    </div>`:null}
+  </div>`;
+}
+
 /* ---- HUB: escolher criança e listar jogos dela ---- */
 const SQL_BURACO=`create table if not exists public.buraco_partidas (
   id uuid primary key default gen_random_uuid(),
@@ -2612,12 +2886,33 @@ function Jogos(props){
   const [impPreview,setImpPreview]=useState(null);
   const carregarProvas=async function(){ var r=await sb.from("jogo_provas").select("*").order("criado_em",{ascending:false}); if(!r.error) setImportados(r.data||[]); };
   useEffect(function(){ carregarProvas(); },[]);
+  const [abertas,setAbertas]=useState([]);
+  const [envios,setEnvios]=useState([]);
+  const [provaSel,setProvaSel]=useState(null);
+  const carregarAbertas=async function(){
+    var a=await sb.from("provas_abertas").select("*").order("criado_em",{ascending:false}); if(!a.error) setAbertas(a.data||[]);
+    var e=await sb.from("provas_respostas").select("*"); if(!e.error) setEnvios(e.data||[]);
+  };
+  useEffect(function(){ carregarAbertas(); },[]);
+  function abertasDe(cid){ return abertas.filter(function(p){return p.crianca_id===cid;}); }
+  function envioDe(pid,cid){ return envios.find(function(e){return e.prova_id===pid&&e.crianca_id===cid;}); }
   function jogosDe(cid){ var base=(JOGOS_CATALOGO[cid]||[]).slice(); var imp=importados.filter(function(p){return p.crianca_id===cid;}).map(function(p){ return {id:"imp_"+p.id, tipo:"quiz", tit:p.titulo, materia:p.materia||"Prova", emoji:p.emoji||"📝", nivel:p.nivel||"Médio", tema:"padrao", desc:"Prova importada pelo papai", perguntas:p.perguntas||[], _impId:p.id}; }); return base.concat(imp); }
   async function salvarProva(cid,prev){ if(!prev||prev.erros.length||!prev.perguntas.length)return; var perguntas=prev.perguntas.map(function(p){return {q:p.q,op:p.op,c:p.c,materia:p.materia||prev.materia||"",exp:p.exp||""};}); var r=await sb.from("jogo_provas").insert({crianca_id:cid,titulo:prev.titulo||"Prova",materia:prev.materia||"",emoji:"📝",nivel:"Médio",perguntas:perguntas}); if(r.error){toast(r.error.message);return;} setImpAberto(false);setImpTxt("");setImpPreview(null);carregarProvas();toast("Prova importada! 📝"); }
   async function apagarProva(id){ if(!window.confirm("Apagar esta prova importada?"))return; var r=await sb.from("jogo_provas").delete().eq("id",id); if(r.error){toast(r.error.message);return;} carregarProvas(); }
 
   if(tela==="buraco") return html`<${Buraco} papel=${props.papel} nome=${props.nome} toast=${toast} onSair=${function(){setTela("casa");}}/>`;
   if(tela==="tesouro") return html`<${CacaTesouro} papel=${props.papel} nome=${props.nome} toast=${toast} onSair=${function(){setTela("casa");}}/>`;
+
+  if(tela!=="casa" && provaSel){
+    const crP=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
+    const pvP=abertas.find(function(p){return p.id===provaSel;});
+    const evP=envioDe(provaSel,tela);
+    if(pvP&&crP){
+      const fechar=function(){ setProvaSel(null); carregarAbertas(); };
+      if(ehPai) return html`<${RevisaoProva} prova=${pvP} crianca=${crP} envio=${evP} toast=${toast} onVoltar=${function(){setProvaSel(null);}} onAtualizar=${carregarAbertas}/>`;
+      return html`<${ProvaAberta} prova=${pvP} crianca=${crP} envio=${evP} toast=${toast} onVoltar=${fechar} onEnviado=${carregarAbertas}/>`;
+    }
+  }
 
   if(tela!=="casa" && jogoId){
     const crianca=CRIANCAS_JOGO.find(function(c){return c.id===tela;});
@@ -2633,6 +2928,25 @@ function Jogos(props){
       <div className="eyebrow">Jogos de ${crianca.nome}</div>
       <div className="h1" style=${{marginBottom:4}}>${crianca.emoji} ${crianca.nome} <span style=${{fontSize:15,color:"#857A8C",fontWeight:600}}>· ${crianca.idade} anos</span></div>
       <div className="note" style=${{marginBottom:16}}>Escolha um jogo para testar o que aprendeu.</div>
+      ${abertasDe(crianca.id).length?html`<div style=${{marginBottom:16}}>
+        <div className="eyebrow" style=${{marginBottom:8}}>✏️ Provas abertas</div>
+        <div style=${{display:"flex",flexDirection:"column",gap:8}}>
+          ${abertasDe(crianca.id).map(function(p){
+            var ev=envioDe(p.id,crianca.id);
+            var pend=ev&&ev.status==="aguardando_pais";
+            var sub=ehPai?(ev?(pend?"👀 respondida · falta você conferir":"✅ conferida · nota "+String(ev.nota).replace(".",",")):"ainda não feita · ver gabarito"):(ev?(pend?"📬 enviada · os pais vão conferir":"🏁 nota "+String(ev.nota).replace(".",",")+" · ver resultado"):"toque para fazer ✏️");
+            return html`<button key=${p.id} className="card" onClick=${function(){setProvaSel(p.id);}} style=${{border:pend&&ehPai?"2px solid #6E5A8E":"none",cursor:"pointer",textAlign:"left",padding:"14px 15px",display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+              <div style=${{fontSize:28,flex:"none"}}>✏️</div>
+              <div style=${{flex:1,minWidth:0}}>
+                <div style=${{fontWeight:700,fontSize:15.5}}>${p.titulo}</div>
+                <div className="note" style=${{marginTop:2}}>${sub}</div>
+                <div style=${{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}><span className="chip" style=${{background:"#F0EBE3",color:"#6b6270"}}>${p.materia||"Prova"}</span><span className="chip" style=${{background:"#F0EBE3",color:"#6b6270"}}>${(p.perguntas||[]).length} perguntas</span></div>
+              </div>
+              <div style=${{fontSize:18,color:"#857A8C",flex:"none"}}>→</div>
+            </button>`;
+          })}
+        </div>
+      </div>`:null}
       ${ehPai?(impAberto?html`<div className="card" style=${{padding:14,marginBottom:14}}>
         <div style=${{fontWeight:700,marginBottom:6}}>📝 Importar prova</div>
         <div className="note" style=${{marginBottom:8}}>Cole a prova no formato de texto (uma por vez).</div>
